@@ -3,7 +3,7 @@ import {
 	verifyWebhookSignature,
 	verifyWebhookChallenge,
 } from "../utils/webhookVerification.js";
-import { addMessage, markConversationAsRead } from "../utils/messageStorage.js";
+import { addMessage, markConversationAsRead, updateMessageStatus } from "../utils/messageStorage.js";
 
 /**
  * Handle webhook verification (GET request)
@@ -93,8 +93,9 @@ async function processMessageEvent(value) {
 				from: message.from,
 				to: value.metadata?.phone_number_id,
 				content: message.text?.body || message.type,
-				timestamp: message.timestamp,
+				timestamp: message.timestamp, // WhatsApp sends Unix timestamp in seconds
 				type: message.type,
+				status: "received", // Incoming messages are always received
 			};
 
 			// Store message
@@ -104,6 +105,7 @@ async function processMessageEvent(value) {
 				from: message.from,
 				messageId: message.id,
 				type: message.type,
+				timestamp: message.timestamp,
 			});
 		}
 
@@ -114,6 +116,9 @@ async function processMessageEvent(value) {
 				status: status.status,
 				recipient: status.recipient_id,
 			});
+
+			// Update message status in storage
+			updateMessageStatus(status.id, status.status);
 
 			// If message is read, mark conversation as read
 			if (status.status === "read") {

@@ -3,6 +3,8 @@
  * In production, replace this with a database (MongoDB, PostgreSQL, etc.)
  */
 
+import logger from "../config/logger.js";
+
 // Store conversations: { conversationId: { id, phoneNumber, name, messages: [], lastMessageTime, unreadCount } }
 const conversations = new Map();
 
@@ -34,12 +36,54 @@ export function getOrCreateConversation(phoneNumber, name = null) {
 }
 
 /**
+ * Convert WhatsApp timestamp to ISO string
+ * @param {string|number} timestamp - WhatsApp timestamp (Unix seconds)
+ * @returns {string} ISO timestamp string
+ */
+function normalizeWhatsAppTimestamp(timestamp) {
+	if (!timestamp) {
+		return new Date().toISOString();
+	}
+
+	// WhatsApp sends timestamps as Unix seconds (10 digits)
+	const numericTs = typeof timestamp === "string" ? Number(timestamp) : timestamp;
+	
+	if (Number.isNaN(numericTs)) {
+		return new Date().toISOString();
+	}
+
+	// If timestamp is less than 10^10, it's in seconds, convert to milliseconds
+	const date = numericTs < 10_000_000_000 
+		? new Date(numericTs * 1000)
+		: new Date(numericTs);
+
+	return date.toISOString();
+}
+
+/**
+ * Update message status
+ * @param {string} messageId - WhatsApp message ID
+ * @param {string} status - New status (sent, delivered, read)
+ */
+export function updateMessageStatus(messageId, status) {
+	for (const [conversationId, messageList] of messages.entries()) {
+		const message = messageList.find((msg) => msg.messageId === messageId || msg.id === messageId);
+		if (message) {
+			message.status = status;
+			logger.info("Message status updated", { messageId, status, conversationId });
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
  * Add a message to storage
  * @param {Object} message - Message object
  * @returns {Object} Stored message
  */
 export function addMessage(message) {
-	const { conversationId, from, to, content, timestamp, messageId, type } =
+	const { conversationId, from, to, content, timestamp, messageId, type, status } =
 		message;
 
 	// Determine conversation ID from phone number
@@ -49,15 +93,19 @@ export function addMessage(message) {
 	// Get or create conversation
 	const conversation = getOrCreateConversation(phoneNumber);
 
+	// Normalize timestamp properly
+	const normalizedTimestamp = normalizeWhatsAppTimestamp(timestamp);
+
 	const messageObj = {
 		id: messageId || `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+		messageId: messageId, // Store original WhatsApp message ID for status updates
 		conversationId: normalizedId,
 		from,
 		to,
 		content,
-		timestamp: timestamp || new Date().toISOString(),
+		timestamp: normalizedTimestamp,
 		type: type || "text",
-		status: from ? "received" : "sent",
+		status: status || (from ? "received" : "sent"),
 	};
 
 	// Add to messages array
@@ -67,7 +115,7 @@ export function addMessage(message) {
 	messages.get(normalizedId).push(messageObj);
 
 	// Update conversation
-	conversation.lastMessageTime = messageObj.timestamp;
+	conversation.lastMessageTime = normalizedTimestamp;
 	conversation.lastMessage = content;
 	if (from) {
 		// Incoming message - increment unread count

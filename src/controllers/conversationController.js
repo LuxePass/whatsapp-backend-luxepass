@@ -54,19 +54,37 @@ export function getConversationMessages(req, res) {
 		const messages = getMessagesByConversation(conversationId);
 
 		// Format for frontend
-		const formatted = messages.map((msg) => ({
-			id: msg.id,
-			conversationId: msg.conversationId,
-			sender: msg.from ? "client" : "pa",
-			clientName: msg.from ? undefined : null,
-			content: msg.content,
-			timestamp: new Date(msg.timestamp).toLocaleTimeString("en-US", {
-				hour: "2-digit",
-				minute: "2-digit",
-			}),
-			status: msg.status || "sent",
-			platform: "whatsapp",
-		}));
+		const formatted = messages.map((msg) => {
+			// Parse timestamp properly
+			let timestampStr = "";
+			let timestampValue = null;
+			
+			try {
+				const date = new Date(msg.timestamp);
+				if (!isNaN(date.getTime())) {
+					timestampValue = date.getTime();
+					timestampStr = date.toLocaleTimeString("en-US", {
+						hour: "2-digit",
+						minute: "2-digit",
+					});
+				}
+			} catch (e) {
+				logger.warn("Invalid timestamp in message", { timestamp: msg.timestamp, messageId: msg.id });
+			}
+
+			return {
+				id: msg.id,
+				messageId: msg.messageId, // Include WhatsApp message ID for status tracking
+				conversationId: msg.conversationId,
+				sender: msg.from ? "client" : "pa",
+				clientName: msg.from ? undefined : null,
+				content: msg.content,
+				timestamp: timestampStr,
+				timestampValue: timestampValue, // Include numeric timestamp for sorting/grouping
+				status: msg.status || "sent",
+				platform: "whatsapp",
+			};
+		});
 
 		res.status(200).json({
 			success: true,
