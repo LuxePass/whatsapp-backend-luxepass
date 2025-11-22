@@ -11,7 +11,9 @@ export const config = {
 		graphApiVersion: process.env.META_GRAPH_API_VERSION || "v22.0",
 	},
 	webhook: {
-		verifyToken: process.env.WEBHOOK_VERIFY_TOKEN || "",
+		verifyToken:
+			process.env.WEBHOOK_VERIFY_TOKEN ||
+			"c4e902f164baa7d7272332447fd2df324bcef149b40e07e926f20e721a9abc0a",
 	},
 	server: {
 		port: parseInt(process.env.PORT || "3500", 10),
