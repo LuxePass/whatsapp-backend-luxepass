@@ -1,0 +1,159 @@
+{
+	"info": {
+		"name": "WhatsApp Business API Backend",
+		"description": "Complete API collection for WhatsApp Business Cloud API backend",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Health Check",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/health",
+					"host": ["{{base_url}}"],
+					"path": ["health"]
+				}
+			}
+		},
+		{
+			"name": "Webhook Verification",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/webhook?hub.mode=subscribe&hub.verify_token={{verify_token}}&hub.challenge=test_challenge",
+					"host": ["{{base_url}}"],
+					"path": ["webhook"],
+					"query": [
+						{
+							"key": "hub.mode",
+							"value": "subscribe"
+						},
+						{
+							"key": "hub.verify_token",
+							"value": "{{verify_token}}"
+						},
+						{
+							"key": "hub.challenge",
+							"value": "test_challenge"
+						}
+					]
+				}
+			}
+		},
+		{
+			"name": "Send Text Message",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"to\": \"1234567890\",\n  \"type\": \"text\",\n  \"message\": \"Hello from WhatsApp API!\"\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/api/messages",
+					"host": ["{{base_url}}"],
+					"path": ["api", "messages"]
+				}
+			}
+		},
+		{
+			"name": "Send Image Message",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"to\": \"1234567890\",\n  \"type\": \"image\",\n  \"mediaUrl\": \"https://example.com/image.jpg\",\n  \"caption\": \"Check this out!\"\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/api/messages",
+					"host": ["{{base_url}}"],
+					"path": ["api", "messages"]
+				}
+			}
+		},
+		{
+			"name": "Send Template Message",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"to\": \"1234567890\",\n  \"type\": \"template\",\n  \"templateName\": \"hello_world\",\n  \"languageCode\": \"en\"\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/api/messages",
+					"host": ["{{base_url}}"],
+					"path": ["api", "messages"]
+				}
+			}
+		},
+		{
+			"name": "Get All Conversations",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/api/conversations",
+					"host": ["{{base_url}}"],
+					"path": ["api", "conversations"]
+				}
+			}
+		},
+		{
+			"name": "Get Conversation Messages",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/api/conversations/1234567890/messages",
+					"host": ["{{base_url}}"],
+					"path": ["api", "conversations", "1234567890", "messages"]
+				}
+			}
+		},
+		{
+			"name": "Mark Conversation as Read",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/api/conversations/1234567890/read",
+					"host": ["{{base_url}}"],
+					"path": ["api", "conversations", "1234567890", "read"]
+				}
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:8000",
+			"type": "string"
+		},
+		{
+			"key": "verify_token",
+			"value": "your_verify_token_here",
+			"type": "string"
+		}
+	]
+}
+

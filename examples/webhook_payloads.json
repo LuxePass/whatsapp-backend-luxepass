@@ -1,0 +1,158 @@
+{
+	"description": "Example webhook payloads from WhatsApp Business API",
+	"examples": {
+		"message_received": {
+			"object": "whatsapp_business_account",
+			"entry": [
+				{
+					"id": "WHATSAPP_BUSINESS_ACCOUNT_ID",
+					"changes": [
+						{
+							"value": {
+								"messaging_product": "whatsapp",
+								"metadata": {
+									"display_phone_number": "15550555555",
+									"phone_number_id": "PHONE_NUMBER_ID"
+								},
+								"contacts": [
+									{
+										"profile": {
+											"name": "John Doe"
+										},
+										"wa_id": "1234567890"
+									}
+								],
+								"messages": [
+									{
+										"from": "1234567890",
+										"id": "wamid.XXX",
+										"timestamp": "1234567890",
+										"text": {
+											"body": "Hello, this is a test message"
+										},
+										"type": "text"
+									}
+								]
+							},
+							"field": "messages"
+						}
+					]
+				}
+			]
+		},
+		"message_status": {
+			"object": "whatsapp_business_account",
+			"entry": [
+				{
+					"id": "WHATSAPP_BUSINESS_ACCOUNT_ID",
+					"changes": [
+						{
+							"value": {
+								"messaging_product": "whatsapp",
+								"metadata": {
+									"display_phone_number": "15550555555",
+									"phone_number_id": "PHONE_NUMBER_ID"
+								},
+								"statuses": [
+									{
+										"id": "wamid.XXX",
+										"status": "delivered",
+										"timestamp": "1234567890",
+										"recipient_id": "1234567890"
+									}
+								]
+							},
+							"field": "messages"
+						}
+					]
+				}
+			]
+		},
+		"message_read": {
+			"object": "whatsapp_business_account",
+			"entry": [
+				{
+					"id": "WHATSAPP_BUSINESS_ACCOUNT_ID",
+					"changes": [
+						{
+							"value": {
+								"messaging_product": "whatsapp",
+								"metadata": {
+									"display_phone_number": "15550555555",
+									"phone_number_id": "PHONE_NUMBER_ID"
+								},
+								"statuses": [
+									{
+										"id": "wamid.XXX",
+										"status": "read",
+										"timestamp": "1234567890",
+										"recipient_id": "1234567890"
+									}
+								]
+							},
+							"field": "messages"
+						}
+					]
+				}
+			]
+		},
+		"media_message": {
+			"object": "whatsapp_business_account",
+			"entry": [
+				{
+					"id": "WHATSAPP_BUSINESS_ACCOUNT_ID",
+					"changes": [
+						{
+							"value": {
+								"messaging_product": "whatsapp",
+								"metadata": {
+									"display_phone_number": "15550555555",
+									"phone_number_id": "PHONE_NUMBER_ID"
+								},
+								"contacts": [
+									{
+										"profile": {
+											"name": "John Doe"
+										},
+										"wa_id": "1234567890"
+									}
+								],
+								"messages": [
+									{
+										"from": "1234567890",
+										"id": "wamid.XXX",
+										"timestamp": "1234567890",
+										"type": "image",
+										"image": {
+											"mime_type": "image/jpeg",
+											"sha256": "hash",
+											"id": "media_id"
+										}
+									}
+								]
+							},
+							"field": "messages"
+						}
+					]
+				}
+			]
+		}
+	},
+	"status_types": [
+		"sent",
+		"delivered",
+		"read",
+		"failed"
+	],
+	"message_types": [
+		"text",
+		"image",
+		"video",
+		"audio",
+		"document",
+		"location",
+		"contacts",
+		"sticker"
+	]
+}
+
