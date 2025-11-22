@@ -31,25 +31,36 @@ const logger = winston.createLogger({
 			),
 		}),
 		// Write errors to error.log
-		new winston.transports.File({
-			filename: "logs/error.log",
-			level: "error",
-			format: combine(timestamp(), errors({ stack: true }), json()),
-		}),
-		// Write all logs to combined.log
-		new winston.transports.File({
-			filename: "logs/combined.log",
-			format: combine(timestamp(), errors({ stack: true }), json()),
-		}),
+		// new winston.transports.File({
+		// 	filename: "logs/error.log",
+		// 	level: "error",
+		// 	format: combine(timestamp(), errors({ stack: true }), json()),
+		// }),
+		// // Write all logs to combined.log
+		// new winston.transports.File({
+		// 	filename: "logs/combined.log",
+		// 	format: combine(timestamp(), errors({ stack: true }), json()),
+		// }),
 	],
 	// Handle exceptions and rejections
 	exceptionHandlers: [
-		new winston.transports.File({ filename: "logs/exceptions.log" }),
+		new winston.transports.Console({
+			format: combine(
+				colorize(),
+				timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
+				consoleFormat
+			),
+		}),
 	],
 	rejectionHandlers: [
-		new winston.transports.File({ filename: "logs/rejections.log" }),
+		new winston.transports.Console({
+			format: combine(
+				colorize(),
+				timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
+				consoleFormat
+			),
+		}),
 	],
 });
 
 export default logger;
-
