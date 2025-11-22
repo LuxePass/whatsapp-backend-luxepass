@@ -5,7 +5,10 @@ import rateLimit from "express-rate-limit";
 import config from "./src/config/env.js";
 import logger from "./src/config/logger.js";
 import { requestLogger } from "./src/middlewares/requestLogger.js";
-import { errorHandler, notFoundHandler } from "./src/middlewares/errorHandler.js";
+import {
+	errorHandler,
+	notFoundHandler,
+} from "./src/middlewares/errorHandler.js";
 import { rawBodyMiddleware } from "./src/middlewares/rawBody.js";
 
 // Import routes
@@ -42,7 +45,7 @@ app.use(
 );
 
 // Raw body middleware for webhook signature verification (must be before express.json)
-app.use(rawBodyMiddleware);
+//app.use(rawBodyMiddleware);
 
 // Body parsing middleware
 app.use(express.json({ limit: "10mb" }));
@@ -72,7 +75,7 @@ app.get("/health", (req, res) => {
 });
 
 // API routes
-app.use("/webhook", webhookRoutes);
+app.use("/webhook", express.raw({ type: "application/json" }), webhookRoutes);
 app.use("/api/messages", messageRoutes);
 app.use("/api/conversations", conversationRoutes);
 
@@ -115,4 +118,3 @@ server = app.listen(PORT, () => {
 });
 
 export default app;
-
