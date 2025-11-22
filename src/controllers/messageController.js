@@ -14,10 +14,19 @@ export async function sendMessage(req, res) {
 		const { to, type, message, mediaUrl, caption, filename, templateName, languageCode, components } =
 			req.body;
 
+		logger.info("Send message request received", {
+			to,
+			type,
+			hasMessage: !!message,
+		});
+
 		if (!to) {
 			return res.status(400).json({
 				success: false,
-				error: "Missing required field: 'to' (recipient phone number)",
+				error: {
+					message: "Missing required field: 'to' (recipient phone number)",
+					code: 400,
+				},
 			});
 		}
 
@@ -89,9 +98,17 @@ export async function sendMessage(req, res) {
 				data: result.data,
 			});
 		} else {
-			return res.status(400).json({
+			// Return error with proper status code
+			const statusCode = result.error?.code >= 400 && result.error?.code < 600 
+				? result.error.code 
+				: 400;
+			
+			return res.status(statusCode).json({
 				success: false,
-				error: result.error,
+				error: result.error || {
+					message: "Failed to send message",
+					code: 400,
+				},
 			});
 		}
 	} catch (error) {

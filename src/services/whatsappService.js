@@ -4,6 +4,15 @@ import logger from "../config/logger.js";
 
 const graphApiBaseUrl = `https://graph.facebook.com/${config.meta.graphApiVersion}`;
 
+// Validate configuration on module load
+if (!config.meta.phoneNumberId) {
+	logger.error("⚠️  META_PHONE_NUMBER_ID is not set! Messages cannot be sent.");
+}
+
+if (!config.meta.token) {
+	logger.error("⚠️  META_TOKEN is not set! API calls will fail.");
+}
+
 /**
  * Create axios instance with default config
  */
@@ -24,8 +33,18 @@ const apiClient = axios.create({
  */
 export async function sendTextMessage(to, message) {
 	try {
+		// Validate phone number ID is set
+		if (!config.meta.phoneNumberId) {
+			throw new Error("META_PHONE_NUMBER_ID is not configured. Please set it in your environment variables.");
+		}
+
 		// Normalize phone number (remove + and spaces)
 		const normalizedTo = to.replace(/\D/g, "");
+
+		// Validate phone number format
+		if (!normalizedTo || normalizedTo.length < 10 || normalizedTo.length > 15) {
+			throw new Error(`Invalid phone number format: ${to}. Phone number must be 10-15 digits.`);
+		}
 
 		const payload = {
 			messaging_product: "whatsapp",
@@ -37,7 +56,10 @@ export async function sendTextMessage(to, message) {
 			},
 		};
 
-		logger.info("Sending text message", { to: normalizedTo });
+		logger.info("Sending text message", { 
+			to: normalizedTo,
+			phoneNumberId: config.meta.phoneNumberId,
+		});
 
 		const response = await apiClient.post(
 			`/${config.meta.phoneNumberId}/messages`,
@@ -57,14 +79,19 @@ export async function sendTextMessage(to, message) {
 	} catch (error) {
 		logger.error("Error sending text message", {
 			to,
+			phoneNumberId: config.meta.phoneNumberId,
 			error: error.response?.data || error.message,
+			errorStack: error.stack,
 		});
 
+		// Return more detailed error information
+		const errorData = error.response?.data?.error || error.response?.data;
 		return {
 			success: false,
-			error: error.response?.data?.error || {
-				message: error.message,
-				code: error.response?.status,
+			error: errorData || {
+				message: error.message || "Failed to send message",
+				code: error.response?.status || 500,
+				type: error.response?.data?.error?.type || "UnknownError",
 			},
 		};
 	}
