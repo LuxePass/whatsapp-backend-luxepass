@@ -15,8 +15,12 @@ import { rawBodyMiddleware } from "./src/middlewares/rawBody.js";
 import webhookRoutes from "./src/routes/webhookRoutes.js";
 import messageRoutes from "./src/routes/messageRoutes.js";
 import conversationRoutes from "./src/routes/conversationRoutes.js";
+import { connectDB } from "./src/config/database.js";
 
 const app = express();
+
+// Connect to Database
+connectDB();
 
 // Trust proxy (important for rate limiting behind reverse proxy)
 app.set("trust proxy", 1);

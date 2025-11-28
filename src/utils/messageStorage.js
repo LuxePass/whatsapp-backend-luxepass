@@ -1,165 +1,139 @@
-/**
- * In-memory message storage
- * In production, replace this with a database (MongoDB, PostgreSQL, etc.)
- */
-
+import Message from "../models/Message.js";
+import Conversation from "../models/Conversation.js";
 import logger from "../config/logger.js";
-
-// Store conversations: { conversationId: { id, phoneNumber, name, messages: [], lastMessageTime, unreadCount } }
-const conversations = new Map();
-
-// Store messages by conversation: { conversationId: [messages] }
-const messages = new Map();
 
 /**
  * Get or create a conversation
  * @param {string} phoneNumber - WhatsApp phone number
  * @param {string} name - Contact name (optional)
- * @returns {Object} Conversation object
+ * @returns {Promise<Object>} Conversation object
  */
-export function getOrCreateConversation(phoneNumber, name = null) {
-	// Use phone number as conversation ID (normalized)
+export async function getOrCreateConversation(phoneNumber, name = null) {
 	const conversationId = phoneNumber.replace(/\D/g, "");
 
-	if (!conversations.has(conversationId)) {
-		conversations.set(conversationId, {
-			id: conversationId,
-			phoneNumber,
-			name: name || phoneNumber,
-			lastMessageTime: new Date().toISOString(),
-			unreadCount: 0,
-		});
-		messages.set(conversationId, []);
-	}
+	try {
+		let conversation = await Conversation.findOne({ conversationId });
 
-	return conversations.get(conversationId);
-}
-
-/**
- * Convert WhatsApp timestamp to ISO string
- * @param {string|number} timestamp - WhatsApp timestamp (Unix seconds)
- * @returns {string} ISO timestamp string
- */
-function normalizeWhatsAppTimestamp(timestamp) {
-	if (!timestamp) {
-		return new Date().toISOString();
-	}
-
-	// WhatsApp sends timestamps as Unix seconds (10 digits)
-	const numericTs = typeof timestamp === "string" ? Number(timestamp) : timestamp;
-	
-	if (Number.isNaN(numericTs)) {
-		return new Date().toISOString();
-	}
-
-	// If timestamp is less than 10^10, it's in seconds, convert to milliseconds
-	const date = numericTs < 10_000_000_000 
-		? new Date(numericTs * 1000)
-		: new Date(numericTs);
-
-	return date.toISOString();
-}
-
-/**
- * Update message status
- * @param {string} messageId - WhatsApp message ID
- * @param {string} status - New status (sent, delivered, read)
- */
-export function updateMessageStatus(messageId, status) {
-	for (const [conversationId, messageList] of messages.entries()) {
-		const message = messageList.find((msg) => msg.messageId === messageId || msg.id === messageId);
-		if (message) {
-			message.status = status;
-			logger.info("Message status updated", { messageId, status, conversationId });
-			return true;
+		if (!conversation) {
+			conversation = await Conversation.create({
+				conversationId,
+				phoneNumber,
+				name: name || phoneNumber,
+			});
+		} else if (name && conversation.name !== name) {
+			// Update name if provided and different
+			conversation.name = name;
+			await conversation.save();
 		}
+
+		return conversation;
+	} catch (error) {
+		logger.error("Error getting/creating conversation", { error: error.message });
+		throw error;
 	}
-	return false;
 }
 
 /**
  * Add a message to storage
  * @param {Object} message - Message object
- * @returns {Object} Stored message
+ * @returns {Promise<Object>} Stored message
  */
-export function addMessage(message) {
-	const { conversationId, from, to, content, timestamp, messageId, type, status } =
-		message;
-
-	// Determine conversation ID from phone number
+export async function addMessage(message) {
+	const { from, to, content, timestamp, messageId, type, status } = message;
 	const phoneNumber = from || to;
-	const normalizedId = phoneNumber.replace(/\D/g, "");
+	const conversationId = phoneNumber.replace(/\D/g, "");
 
-	// Get or create conversation
-	const conversation = getOrCreateConversation(phoneNumber);
+	try {
+		// Ensure conversation exists
+		await getOrCreateConversation(phoneNumber);
 
-	// Normalize timestamp properly
-	const normalizedTimestamp = normalizeWhatsAppTimestamp(timestamp);
+		const newMessage = await Message.create({
+			messageId:
+				messageId || `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+			conversationId,
+			from,
+			to,
+			content,
+			type: type || "text",
+			status: status || (from ? "received" : "sent"),
+			timestamp: timestamp ? new Date(timestamp) : new Date(),
+		});
 
-	const messageObj = {
-		id: messageId || `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-		messageId: messageId, // Store original WhatsApp message ID for status updates
-		conversationId: normalizedId,
-		from,
-		to,
-		content,
-		timestamp: normalizedTimestamp,
-		type: type || "text",
-		status: status || (from ? "received" : "sent"),
-	};
+		// Update conversation
+		const updateData = {
+			lastMessage: content,
+			lastMessageTime: newMessage.timestamp,
+		};
 
-	// Add to messages array
-	if (!messages.has(normalizedId)) {
-		messages.set(normalizedId, []);
+		if (from) {
+			updateData.$inc = { unreadCount: 1 };
+		}
+
+		await Conversation.findOneAndUpdate({ conversationId }, updateData);
+
+		return newMessage;
+	} catch (error) {
+		logger.error("Error adding message", { error: error.message });
+		throw error;
 	}
-	messages.get(normalizedId).push(messageObj);
+}
 
-	// Update conversation
-	conversation.lastMessageTime = normalizedTimestamp;
-	conversation.lastMessage = content;
-	if (from) {
-		// Incoming message - increment unread count
-		conversation.unreadCount += 1;
+/**
+ * Update message status
+ * @param {string} messageId - WhatsApp message ID
+ * @param {string} status - New status
+ */
+export async function updateMessageStatus(messageId, status) {
+	try {
+		const message = await Message.findOne({ messageId });
+		if (message) {
+			message.status = status;
+			await message.save();
+			logger.info("Message status updated", { messageId, status });
+			return true;
+		}
+		return false;
+	} catch (error) {
+		logger.error("Error updating message status", { error: error.message });
+		return false;
 	}
-
-	return messageObj;
 }
 
 /**
  * Get all conversations
- * @returns {Array} Array of conversation objects
+ * @returns {Promise<Array>} Array of conversation objects
  */
-export function getAllConversations() {
-	return Array.from(conversations.values()).sort(
-		(a, b) => new Date(b.lastMessageTime) - new Date(a.lastMessageTime)
-	);
+export async function getAllConversations() {
+	try {
+		return await Conversation.find().sort({ lastMessageTime: -1 });
+	} catch (error) {
+		logger.error("Error getting all conversations", { error: error.message });
+		return [];
+	}
 }
 
 /**
  * Get messages for a conversation
  * @param {string} conversationId - Conversation ID
- * @returns {Array} Array of messages
+ * @returns {Promise<Array>} Array of messages
  */
-export function getMessagesByConversation(conversationId) {
-	return messages.get(conversationId) || [];
+export async function getMessagesByConversation(conversationId) {
+	try {
+		return await Message.find({ conversationId }).sort({ timestamp: 1 });
+	} catch (error) {
+		logger.error("Error getting messages", { error: error.message });
+		return [];
+	}
 }
 
 /**
  * Mark conversation as read
  * @param {string} conversationId - Conversation ID
  */
-export function markConversationAsRead(conversationId) {
-	const conversation = conversations.get(conversationId);
-	if (conversation) {
-		conversation.unreadCount = 0;
+export async function markConversationAsRead(conversationId) {
+	try {
+		await Conversation.findOneAndUpdate({ conversationId }, { unreadCount: 0 });
+	} catch (error) {
+		logger.error("Error marking conversation as read", { error: error.message });
 	}
 }
-
-/**
- * Clear all data (useful for testing)
- */
-export function clearStorage() {
-	conversations.clear();
-	messages.clear();
-}
-

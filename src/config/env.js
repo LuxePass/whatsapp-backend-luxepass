@@ -15,6 +15,9 @@ export const config = {
 			process.env.WEBHOOK_VERIFY_TOKEN ||
 			"c4e902f164baa7d7272332447fd2df324bcef149b40e07e926f20e721a9abc0a",
 	},
+	database: {
+		uri: process.env.MONGODB_URI || "mongodb://localhost:27017/whatsapp_backend",
+	},
 	server: {
 		port: parseInt(process.env.PORT || "3500", 10),
 		nodeEnv: process.env.NODE_ENV || "development",

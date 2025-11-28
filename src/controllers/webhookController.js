@@ -3,7 +3,12 @@ import {
 	verifyWebhookSignature,
 	verifyWebhookChallenge,
 } from "../utils/webhookVerification.js";
-import { addMessage, markConversationAsRead, updateMessageStatus } from "../utils/messageStorage.js";
+import {
+	addMessage,
+	markConversationAsRead,
+	updateMessageStatus,
+} from "../utils/messageStorage.js";
+import { handleWorkflow } from "../services/workflowService.js";
 
 /**
  * Handle webhook verification (GET request)
@@ -99,7 +104,7 @@ async function processMessageEvent(value) {
 			};
 
 			// Store message
-			addMessage(messageData);
+			await addMessage(messageData);
 
 			logger.info("Incoming message processed", {
 				from: message.from,
@@ -107,6 +112,15 @@ async function processMessageEvent(value) {
 				type: message.type,
 				timestamp: message.timestamp,
 			});
+
+			// Handle Workflow
+			if (message.type === "text") {
+				await handleWorkflow(
+					message.from,
+					messageData.content,
+					contact?.profile?.name
+				);
+			}
 		}
 
 		// Process message statuses (sent, delivered, read)
@@ -135,4 +149,3 @@ async function processMessageEvent(value) {
 		});
 	}
 }
-

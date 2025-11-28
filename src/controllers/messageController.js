@@ -11,8 +11,17 @@ import logger from "../config/logger.js";
  */
 export async function sendMessage(req, res) {
 	try {
-		const { to, type, message, mediaUrl, caption, filename, templateName, languageCode, components } =
-			req.body;
+		const {
+			to,
+			type,
+			message,
+			mediaUrl,
+			caption,
+			filename,
+			templateName,
+			languageCode,
+			components,
+		} = req.body;
 
 		logger.info("Send message request received", {
 			to,
@@ -81,7 +90,7 @@ export async function sendMessage(req, res) {
 		if (result.success) {
 			// Store sent message in our storage
 			if (type === "text") {
-				addMessage({
+				await addMessage({
 					conversationId: to.replace(/\D/g, ""),
 					to,
 					from: null,
@@ -99,10 +108,11 @@ export async function sendMessage(req, res) {
 			});
 		} else {
 			// Return error with proper status code
-			const statusCode = result.error?.code >= 400 && result.error?.code < 600 
-				? result.error.code 
-				: 400;
-			
+			const statusCode =
+				result.error?.code >= 400 && result.error?.code < 600
+					? result.error.code
+					: 400;
+
 			return res.status(statusCode).json({
 				success: false,
 				error: result.error || {
@@ -119,4 +129,3 @@ export async function sendMessage(req, res) {
 		});
 	}
 }
-

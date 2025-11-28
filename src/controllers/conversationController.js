@@ -8,13 +8,13 @@ import logger from "../config/logger.js";
 /**
  * Get all conversations
  */
-export function getConversations(req, res) {
+export async function getConversations(req, res) {
 	try {
-		const conversations = getAllConversations();
+		const conversations = await getAllConversations();
 
 		// Format for frontend
 		const formatted = conversations.map((conv) => ({
-			id: conv.id,
+			id: conv.conversationId, // Use conversationId as id
 			clientName: conv.name,
 			clientPhone: conv.phoneNumber,
 			lastMessage: conv.lastMessage || "No messages yet",
@@ -40,7 +40,7 @@ export function getConversations(req, res) {
 /**
  * Get messages for a specific conversation
  */
-export function getConversationMessages(req, res) {
+export async function getConversationMessages(req, res) {
 	try {
 		const { conversationId } = req.params;
 
@@ -51,14 +51,14 @@ export function getConversationMessages(req, res) {
 			});
 		}
 
-		const messages = getMessagesByConversation(conversationId);
+		const messages = await getMessagesByConversation(conversationId);
 
 		// Format for frontend
 		const formatted = messages.map((msg) => {
 			// Parse timestamp properly
 			let timestampStr = "";
 			let timestampValue = null;
-			
+
 			try {
 				const date = new Date(msg.timestamp);
 				if (!isNaN(date.getTime())) {
@@ -69,11 +69,14 @@ export function getConversationMessages(req, res) {
 					});
 				}
 			} catch (e) {
-				logger.warn("Invalid timestamp in message", { timestamp: msg.timestamp, messageId: msg.id });
+				logger.warn("Invalid timestamp in message", {
+					timestamp: msg.timestamp,
+					messageId: msg.id,
+				});
 			}
 
 			return {
-				id: msg.id,
+				id: msg.messageId, // Use messageId as id
 				messageId: msg.messageId, // Include WhatsApp message ID for status tracking
 				conversationId: msg.conversationId,
 				sender: msg.from ? "client" : "pa",
@@ -132,4 +135,3 @@ export function markAsRead(req, res) {
 		});
 	}
 }
-
