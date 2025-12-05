@@ -23,6 +23,35 @@ export async function handleWorkflow(from, message, name) {
 		let user = await User.findOne({ phoneNumber: from });
 
 		if (!user) {
+			// Check if the first message is a request for live chat
+			const isLiveChatRequest =
+				message.toLowerCase().includes("live chat") ||
+				message.toLowerCase().includes("human") ||
+				message.toLowerCase().includes("support") ||
+				message.toLowerCase().includes("agent");
+
+			if (isLiveChatRequest) {
+				user = await User.create({
+					phoneNumber: from,
+					name: name,
+					workflowState: STATES.PERSONAL_ASSISTANT,
+					isLiveChatActive: true,
+				});
+
+				await sendTextMessage(
+					from,
+					`*Personal Assistant* 👤
+
+Connecting you with a Live Agent...
+Please wait a moment, one of our specialists will be with you shortly to assist with your request.`
+				);
+				logger.info("New user requested live chat immediately", {
+					phoneNumber: from,
+				});
+				return;
+			}
+
+			// Default: Send Welcome Menu
 			user = await User.create({
 				phoneNumber: from,
 				name: name,
