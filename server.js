@@ -16,6 +16,7 @@ import webhookRoutes from "./src/routes/webhookRoutes.js";
 import messageRoutes from "./src/routes/messageRoutes.js";
 import conversationRoutes from "./src/routes/conversationRoutes.js";
 import paymentRoutes from "./src/routes/paymentRoutes.js";
+import liveChatRoutes from "./src/routes/liveChatRoutes.js";
 import { connectDB } from "./src/config/database.js";
 
 const app = express();
@@ -84,6 +85,7 @@ app.use("/webhook", express.raw({ type: "application/json" }), webhookRoutes);
 app.use("/api/messages", messageRoutes);
 app.use("/api/conversations", conversationRoutes);
 app.use("/api/payment", paymentRoutes);
+app.use("/api/livechat", liveChatRoutes);
 
 // 404 handler
 app.use(notFoundHandler);
