@@ -35,7 +35,9 @@ export async function sendTextMessage(to, message) {
 	try {
 		// Validate phone number ID is set
 		if (!config.meta.phoneNumberId) {
-			throw new Error("META_PHONE_NUMBER_ID is not configured. Please set it in your environment variables.");
+			throw new Error(
+				"META_PHONE_NUMBER_ID is not configured. Please set it in your environment variables."
+			);
 		}
 
 		// Normalize phone number (remove + and spaces)
@@ -43,7 +45,9 @@ export async function sendTextMessage(to, message) {
 
 		// Validate phone number format
 		if (!normalizedTo || normalizedTo.length < 10 || normalizedTo.length > 15) {
-			throw new Error(`Invalid phone number format: ${to}. Phone number must be 10-15 digits.`);
+			throw new Error(
+				`Invalid phone number format: ${to}. Phone number must be 10-15 digits.`
+			);
 		}
 
 		const payload = {
@@ -56,7 +60,7 @@ export async function sendTextMessage(to, message) {
 			},
 		};
 
-		logger.info("Sending text message", { 
+		logger.info("Sending text message", {
 			to: normalizedTo,
 			phoneNumberId: config.meta.phoneNumberId,
 		});
@@ -92,6 +96,103 @@ export async function sendTextMessage(to, message) {
 				message: error.message || "Failed to send message",
 				code: error.response?.status || 500,
 				type: error.response?.data?.error?.type || "UnknownError",
+			},
+		};
+	}
+}
+
+/**
+ * Send an interactive message with buttons
+ * @param {string} to - Recipient phone number
+ * @param {string} bodyText - Message body text
+ * @param {Array} buttons - Array of button objects with id and title
+ * @param {string} headerText - Optional header text
+ * @param {string} footerText - Optional footer text
+ * @returns {Promise<Object>} API response
+ */
+export async function sendInteractiveMessage(
+	to,
+	bodyText,
+	buttons,
+	headerText = null,
+	footerText = null
+) {
+	try {
+		const normalizedTo = to.replace(/\D/g, "");
+
+		// WhatsApp allows max 3 buttons for reply buttons
+		if (buttons.length > 3) {
+			throw new Error("WhatsApp interactive messages support maximum 3 buttons");
+		}
+
+		const payload = {
+			messaging_product: "whatsapp",
+			recipient_type: "individual",
+			to: normalizedTo,
+			type: "interactive",
+			interactive: {
+				type: "button",
+				body: {
+					text: bodyText,
+				},
+				action: {
+					buttons: buttons.map((btn, index) => ({
+						type: "reply",
+						reply: {
+							id: btn.id || `btn_${index}`,
+							title: btn.title.substring(0, 20), // WhatsApp limit is 20 chars
+						},
+					})),
+				},
+			},
+		};
+
+		// Add optional header
+		if (headerText) {
+			payload.interactive.header = {
+				type: "text",
+				text: headerText,
+			};
+		}
+
+		// Add optional footer
+		if (footerText) {
+			payload.interactive.footer = {
+				text: footerText,
+			};
+		}
+
+		logger.info("Sending interactive message", {
+			to: normalizedTo,
+			buttonCount: buttons.length,
+		});
+
+		const response = await apiClient.post(
+			`/${config.meta.phoneNumberId}/messages`,
+			payload
+		);
+
+		logger.info("Interactive message sent successfully", {
+			messageId: response.data.messages?.[0]?.id,
+			to: normalizedTo,
+		});
+
+		return {
+			success: true,
+			messageId: response.data.messages?.[0]?.id,
+			data: response.data,
+		};
+	} catch (error) {
+		logger.error("Error sending interactive message", {
+			to,
+			error: error.response?.data || error.message,
+		});
+
+		return {
+			success: false,
+			error: error.response?.data?.error || {
+				message: error.message,
+				code: error.response?.status,
 			},
 		};
 	}
@@ -287,4 +388,3 @@ export async function markMessageAsRead(messageId) {
 		};
 	}
 }
-

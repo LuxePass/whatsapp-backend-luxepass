@@ -93,11 +93,26 @@ async function processMessageEvent(value) {
 		for (const message of messages) {
 			const contact = contacts.find((c) => c.wa_id === message.from);
 
+			// Extract content based on message type
+			let content = "";
+			if (message.type === "text") {
+				content = message.text?.body || "";
+			} else if (message.type === "interactive") {
+				// Handle interactive button responses
+				if (message.interactive?.type === "button_reply") {
+					content = message.interactive.button_reply.id; // Use button ID as content
+				} else if (message.interactive?.type === "list_reply") {
+					content = message.interactive.list_reply.id;
+				}
+			} else {
+				content = message.type; // Fallback to message type
+			}
+
 			const messageData = {
 				messageId: message.id,
 				from: message.from,
 				to: value.metadata?.phone_number_id,
-				content: message.text?.body || message.type,
+				content,
 				timestamp: message.timestamp
 					? new Date(Number(message.timestamp) * 1000)
 					: new Date(), // Convert WhatsApp timestamp (seconds) to Date
@@ -112,14 +127,15 @@ async function processMessageEvent(value) {
 				from: message.from,
 				messageId: message.id,
 				type: message.type,
+				content,
 				timestamp: message.timestamp,
 			});
 
-			// Handle Workflow
-			if (message.type === "text") {
+			// Handle Workflow for text and interactive messages
+			if (message.type === "text" || message.type === "interactive") {
 				await handleWorkflow(
 					message.from.replace(/\D/g, ""), // Sanitize here too just in case
-					messageData.content,
+					content,
 					contact?.profile?.name
 				);
 			}
