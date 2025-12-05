@@ -98,7 +98,9 @@ async function processMessageEvent(value) {
 				from: message.from,
 				to: value.metadata?.phone_number_id,
 				content: message.text?.body || message.type,
-				timestamp: message.timestamp, // WhatsApp sends Unix timestamp in seconds
+				timestamp: message.timestamp
+					? new Date(Number(message.timestamp) * 1000)
+					: new Date(), // Convert WhatsApp timestamp (seconds) to Date
 				type: message.type,
 				status: "received", // Incoming messages are always received
 			};

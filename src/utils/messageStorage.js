@@ -56,7 +56,12 @@ export async function addMessage(message) {
 			content,
 			type: type || "text",
 			status: status || (from ? "received" : "sent"),
-			timestamp: timestamp ? new Date(timestamp) : new Date(),
+			timestamp:
+				timestamp instanceof Date
+					? timestamp
+					: timestamp
+					? new Date(timestamp)
+					: new Date(),
 		});
 
 		// Update conversation
