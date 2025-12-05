@@ -19,8 +19,8 @@ import { connectDB } from "./src/config/database.js";
 
 const app = express();
 
-// Connect to Database
-connectDB();
+// Connect to Database (handled in startServer)
+// connectDB();
 
 // Trust proxy (important for rate limiting behind reverse proxy)
 app.set("trust proxy", 1);
@@ -111,14 +111,28 @@ process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
 process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
 // Start server
+// Start server
 const PORT = config.server.port;
 
-server = app.listen(PORT, () => {
-	logger.info(`🚀 WhatsApp Backend Server running on port ${PORT}`);
-	logger.info(`📝 Environment: ${config.server.nodeEnv}`);
-	logger.info(`🌐 Health check: http://localhost:${PORT}/health`);
-	logger.info(`📨 Webhook endpoint: http://localhost:${PORT}/webhook`);
-	logger.info(`💬 API base: http://localhost:${PORT}/api`);
-});
+const startServer = async () => {
+	try {
+		// Connect to Database first
+		await connectDB();
+		logger.info("✅ Database connected successfully");
+
+		server = app.listen(PORT, () => {
+			logger.info(`🚀 WhatsApp Backend Server running on port ${PORT}`);
+			logger.info(`📝 Environment: ${config.server.nodeEnv}`);
+			logger.info(`🌐 Health check: http://localhost:${PORT}/health`);
+			logger.info(`📨 Webhook endpoint: http://localhost:${PORT}/webhook`);
+			logger.info(`💬 API base: http://localhost:${PORT}/api`);
+		});
+	} catch (error) {
+		logger.error("Failed to start server:", error);
+		process.exit(1);
+	}
+};
+
+startServer();
 
 export default app;

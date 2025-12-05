@@ -13,15 +13,27 @@ export async function getConversations(req, res) {
 		const conversations = await getAllConversations();
 
 		// Format for frontend
-		const formatted = conversations.map((conv) => ({
-			id: conv.conversationId, // Use conversationId as id
-			clientName: conv.name,
-			clientPhone: conv.phoneNumber,
-			lastMessage: conv.lastMessage || "No messages yet",
-			lastMessageTime: conv.lastMessageTime,
-			unreadCount: conv.unreadCount || 0,
-			status: "active",
-		}));
+		const formatted = conversations
+			.map((conv) => {
+				try {
+					return {
+						id: conv.conversationId, // Use conversationId as id
+						clientName: conv.name || "Unknown",
+						clientPhone: conv.phoneNumber || "",
+						lastMessage: conv.lastMessage || "No messages yet",
+						lastMessageTime: conv.lastMessageTime || new Date(),
+						unreadCount: conv.unreadCount || 0,
+						status: "active",
+					};
+				} catch (err) {
+					logger.error("Error formatting conversation", {
+						error: err.message,
+						conversationId: conv?.conversationId,
+					});
+					return null;
+				}
+			})
+			.filter(Boolean); // Remove nulls
 
 		res.status(200).json({
 			success: true,
@@ -29,7 +41,10 @@ export async function getConversations(req, res) {
 			count: formatted.length,
 		});
 	} catch (error) {
-		logger.error("Error fetching conversations", { error: error.message });
+		logger.error("Error fetching conversations", {
+			error: error.message,
+			stack: error.stack,
+		});
 		res.status(500).json({
 			success: false,
 			error: "Internal server error",

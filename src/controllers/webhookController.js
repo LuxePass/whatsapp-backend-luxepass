@@ -116,7 +116,7 @@ async function processMessageEvent(value) {
 			// Handle Workflow
 			if (message.type === "text") {
 				await handleWorkflow(
-					message.from,
+					message.from.replace(/\D/g, ""), // Sanitize here too just in case
 					messageData.content,
 					contact?.profile?.name
 				);

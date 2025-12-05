@@ -20,7 +20,16 @@ const STATES = {
  */
 export async function handleWorkflow(from, message, name) {
 	try {
-		let user = await User.findOne({ phoneNumber: from });
+		// Sanitize phone number (remove non-digits)
+		const phoneNumber = from.replace(/\D/g, "");
+
+		logger.info("Handling workflow", {
+			from: phoneNumber,
+			message,
+			name,
+		});
+
+		let user = await User.findOne({ phoneNumber });
 
 		if (!user) {
 			// Check if the first message is a request for live chat
@@ -32,32 +41,32 @@ export async function handleWorkflow(from, message, name) {
 
 			if (isLiveChatRequest) {
 				user = await User.create({
-					phoneNumber: from,
+					phoneNumber,
 					name: name,
 					workflowState: STATES.PERSONAL_ASSISTANT,
 					isLiveChatActive: true,
 				});
 
 				await sendTextMessage(
-					from,
+					phoneNumber, // Use sanitized number
 					`*Personal Assistant* 👤
 
 Connecting you with a Live Agent...
 Please wait a moment, one of our specialists will be with you shortly to assist with your request.`
 				);
 				logger.info("New user requested live chat immediately", {
-					phoneNumber: from,
+					phoneNumber,
 				});
 				return;
 			}
 
 			// Default: Send Welcome Menu
 			user = await User.create({
-				phoneNumber: from,
+				phoneNumber,
 				name: name,
 				workflowState: STATES.MAIN_MENU,
 			});
-			await sendWelcomeMenu(from, name);
+			await sendWelcomeMenu(phoneNumber, name);
 			return;
 		}
 
@@ -76,7 +85,7 @@ Please wait a moment, one of our specialists will be with you shortly to assist 
 			user.workflowState = STATES.MAIN_MENU;
 			user.workflowData = new Map();
 			await user.save();
-			await sendWelcomeMenu(from, user.name);
+			await sendWelcomeMenu(phoneNumber, user.name);
 			return;
 		}
 
@@ -102,12 +111,14 @@ Please wait a moment, one of our specialists will be with you shortly to assist 
 			default:
 				user.workflowState = STATES.MAIN_MENU;
 				await user.save();
-				await sendWelcomeMenu(from, user.name);
+				await sendWelcomeMenu(phoneNumber, user.name);
 		}
 	} catch (error) {
 		logger.error("Error in workflow handler", { error: error.message });
+		// Try to send error message to sanitized number if available, else original 'from'
+		const targetNumber = from.replace(/\D/g, "");
 		await sendTextMessage(
-			from,
+			targetNumber,
 			"Sorry, I encountered an error. Please type 'Menu' to restart."
 		);
 	}

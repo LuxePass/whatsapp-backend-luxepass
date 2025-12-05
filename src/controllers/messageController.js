@@ -5,6 +5,7 @@ import {
 } from "../services/whatsappService.js";
 import { addMessage } from "../utils/messageStorage.js";
 import logger from "../config/logger.js";
+import User from "../models/User.js";
 
 /**
  * Send a message via WhatsApp
@@ -49,6 +50,19 @@ export async function sendMessage(req, res) {
 						error: "Missing required field: 'message' for text type",
 					});
 				}
+
+				// Check if user has requested live support
+				const user = await User.findOne({ phoneNumber: to.replace(/\D/g, "") });
+				if (!user || !user.isLiveChatActive) {
+					return res.status(403).json({
+						success: false,
+						error: {
+							message: "Cannot send message. User has not requested live support.",
+							code: 403,
+						},
+					});
+				}
+
 				result = await sendTextMessage(to, message);
 				break;
 
