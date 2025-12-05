@@ -6,11 +6,10 @@ import logger from "../config/logger.js";
 const STATES = {
 	MAIN_MENU: "MAIN_MENU",
 	BOOKING_START: "BOOKING_START",
-	BOOKING_DATE: "BOOKING_DATE",
-	BOOKING_GUESTS: "BOOKING_GUESTS",
-	BOOKING_CONFIRM: "BOOKING_CONFIRM",
+	BOOKING_TYPE: "BOOKING_TYPE",
+	BOOKING_DETAILS: "BOOKING_DETAILS",
 	CONCIERGE_START: "CONCIERGE_START",
-	CONCIERGE_LOCATION: "CONCIERGE_LOCATION",
+	CONCIERGE_TYPE: "CONCIERGE_TYPE",
 	CONCIERGE_DETAILS: "CONCIERGE_DETAILS",
 	PERSONAL_ASSISTANT: "PERSONAL_ASSISTANT",
 	REFERRAL_START: "REFERRAL_START",
@@ -18,9 +17,6 @@ const STATES = {
 
 /**
  * Handle incoming message for workflow processing
- * @param {string} from - User phone number
- * @param {string} message - Message content
- * @param {string} name - User name
  */
 export async function handleWorkflow(from, message, name) {
 	try {
@@ -32,8 +28,7 @@ export async function handleWorkflow(from, message, name) {
 				name: name,
 				workflowState: STATES.MAIN_MENU,
 			});
-			// Send Welcome Message
-			await sendWelcomeMenu(from);
+			await sendWelcomeMenu(from, name);
 			return;
 		}
 
@@ -45,27 +40,30 @@ export async function handleWorkflow(from, message, name) {
 		// Handle "Back to Menu" or "Menu" command
 		if (
 			message.toLowerCase().includes("menu") ||
-			message.toLowerCase().includes("back")
+			message.toLowerCase().includes("back") ||
+			message.toLowerCase() === "hi" ||
+			message.toLowerCase() === "hello"
 		) {
 			user.workflowState = STATES.MAIN_MENU;
-			user.workflowData = {};
+			user.workflowData = new Map();
 			await user.save();
-			await sendWelcomeMenu(from);
+			await sendWelcomeMenu(from, user.name);
 			return;
 		}
 
 		// Process based on current state
+
 		switch (user.workflowState) {
 			case STATES.MAIN_MENU:
 				await handleMainMenu(user, message);
 				break;
 			case STATES.BOOKING_START:
-			case STATES.BOOKING_DATE:
-			case STATES.BOOKING_GUESTS:
+			case STATES.BOOKING_TYPE:
+			case STATES.BOOKING_DETAILS:
 				await handleBookingFlow(user, message);
 				break;
 			case STATES.CONCIERGE_START:
-			case STATES.CONCIERGE_LOCATION:
+			case STATES.CONCIERGE_TYPE:
 			case STATES.CONCIERGE_DETAILS:
 				await handleConciergeFlow(user, message);
 				break;
@@ -73,10 +71,9 @@ export async function handleWorkflow(from, message, name) {
 				await handleReferralFlow(user, message);
 				break;
 			default:
-				// Fallback to main menu
 				user.workflowState = STATES.MAIN_MENU;
 				await user.save();
-				await sendWelcomeMenu(from);
+				await sendWelcomeMenu(from, user.name);
 		}
 	} catch (error) {
 		logger.error("Error in workflow handler", { error: error.message });
@@ -87,15 +84,17 @@ export async function handleWorkflow(from, message, name) {
 	}
 }
 
-async function sendWelcomeMenu(to) {
-	const menuText = `Welcome to LuxePass! How can we help you today?
+async function sendWelcomeMenu(to, name) {
+	const menuText = `Welcome back to LuxePass, ${name || "Guest"}! 👋
 
-1. Booking (Restaurant, Hotel, Events)
-2. Concierge Services (Driver, City)
-3. Request Personal Assistant (Live Support)
-4. View/Share Referral Code
+Please select a service by typing the corresponding number:
 
-Simply type the number to get started! 🛎️`;
+1. Booking (Restaurants, Hotels, Events) 🏨
+2. Concierge Services (Driver, City) 🚗
+3. Request Personal Assistant (Live Support) 👤
+4. View/Share Referral Code ✨
+
+Simply type the number to get started!`;
 	await sendTextMessage(to, menuText);
 }
 
@@ -108,7 +107,15 @@ async function handleMainMenu(user, message) {
 			await user.save();
 			await sendTextMessage(
 				user.phoneNumber,
-				"What would you like to book today?\n\n- Restaurant\n- Hotel\n- Event Access"
+				`*Booking Services* 🏨
+
+What would you like to book today?
+
+1. Restaurant Reservation 🍽️
+2. Hotel Stay 🛏️
+3. Event Access 🎟️
+
+Reply with the number of your choice.`
 			);
 			break;
 		case "2":
@@ -116,7 +123,15 @@ async function handleMainMenu(user, message) {
 			await user.save();
 			await sendTextMessage(
 				user.phoneNumber,
-				"Our Concierge Transfer Service offers:\n\n- Airport Pickup/Dropoff\n- City Transfer\n- Premium Fleet\n\nWhere would you like to go?"
+				`*Concierge Services* 🚗
+
+How can we assist you with transport?
+
+1. Airport Pickup/Dropoff ✈️
+2. City Transfer 🏙️
+3. Premium Fleet Rental 🏎️
+
+Reply with the number of your choice.`
 			);
 			break;
 		case "3":
@@ -125,9 +140,11 @@ async function handleMainMenu(user, message) {
 			await user.save();
 			await sendTextMessage(
 				user.phoneNumber,
-				"Connecting you with a Personal Assistant... 👤\n\nPlease wait a moment."
+				`*Personal Assistant* 👤
+
+Connecting you with a Live Agent...
+Please wait a moment, one of our specialists will be with you shortly to assist with your request.`
 			);
-			// Notify admin/agent system here (future implementation)
 			break;
 		case "4":
 			user.workflowState = STATES.REFERRAL_START;
@@ -135,7 +152,15 @@ async function handleMainMenu(user, message) {
 			const referralCode = `LUXE-${user.phoneNumber.slice(-4)}`;
 			await sendTextMessage(
 				user.phoneNumber,
-				`Your Exclusive LuxePass Referral Code:\n\n✨ ${referralCode} ✨\n\nShare this code to earn points!`
+				`*Your Exclusive Referral Code* ✨
+
+Code: *${referralCode}*
+
+Share this code with friends to earn LuxePoints!
+• 100 Points per referral
+• Exclusive access to VIP events
+
+Reply 'Menu' to go back.`
 			);
 			break;
 		default:
@@ -148,79 +173,87 @@ async function handleMainMenu(user, message) {
 
 async function handleBookingFlow(user, message) {
 	if (user.workflowState === STATES.BOOKING_START) {
-		user.workflowData.set("bookingType", message);
-		user.workflowState = STATES.BOOKING_DATE;
+		const typeMap = { 1: "Restaurant", 2: "Hotel", 3: "Event" };
+		const type = typeMap[message.trim()] || message;
+
+		user.workflowData.set("bookingType", type);
+		user.workflowState = STATES.BOOKING_DETAILS;
 		await user.save();
+
 		await sendTextMessage(
 			user.phoneNumber,
-			"Great! What date and time would you like to book for?"
+			`You selected: *${type}*
+
+Please provide the following details in a single message:
+• Name of Place/Event
+• Date & Time
+• Number of Guests
+• Special Requests`
 		);
-	} else if (user.workflowState === STATES.BOOKING_DATE) {
-		user.workflowData.set("bookingDate", message);
-		user.workflowState = STATES.BOOKING_GUESTS;
-		await user.save();
-		await sendTextMessage(user.phoneNumber, "How many guests will be attending?");
-	} else if (user.workflowState === STATES.BOOKING_GUESTS) {
-		user.workflowData.set("guests", message);
+	} else if (user.workflowState === STATES.BOOKING_DETAILS) {
+		const summary = `*Booking Request Received* ✅
 
-		const summary = `Booking Request:
 Type: ${user.workflowData.get("bookingType")}
-Date: ${user.workflowData.get("bookingDate")}
-Guests: ${message}
+Details: ${message}
 
-We are processing your request. You will receive a confirmation shortly!`;
+We are processing your request with our partners. You will receive a confirmation shortly!
+
+Reply 'Menu' to start over.`;
 
 		await sendTextMessage(user.phoneNumber, summary);
 
-		// Reset to main menu
+		// Reset
 		user.workflowState = STATES.MAIN_MENU;
 		user.workflowData = {};
 		await user.save();
-
-		// Wait a bit then show menu again
-		setTimeout(() => sendWelcomeMenu(user.phoneNumber), 2000);
 	}
 }
 
 async function handleConciergeFlow(user, message) {
 	if (user.workflowState === STATES.CONCIERGE_START) {
-		user.workflowData.set("serviceType", message);
-		user.workflowState = STATES.CONCIERGE_LOCATION;
-		await user.save();
-		await sendTextMessage(
-			user.phoneNumber,
-			"Please provide the pickup location and time."
-		);
-	} else if (user.workflowState === STATES.CONCIERGE_LOCATION) {
-		user.workflowData.set("pickupDetails", message);
+		const typeMap = {
+			1: "Airport Transfer",
+			2: "City Transfer",
+			3: "Fleet Rental",
+		};
+		const type = typeMap[message.trim()] || message;
+
+		user.workflowData.set("serviceType", type);
 		user.workflowState = STATES.CONCIERGE_DETAILS;
 		await user.save();
+
 		await sendTextMessage(
 			user.phoneNumber,
-			"Any special requirements (e.g., child seat, extra luggage)?"
+			`You selected: *${type}*
+
+Please provide:
+• Pickup Location
+• Dropoff Location
+• Date & Time
+• Number of Passengers`
 		);
 	} else if (user.workflowState === STATES.CONCIERGE_DETAILS) {
-		const summary = `Concierge Request:
-Service: ${user.workflowData.get("serviceType")}
-Pickup: ${user.workflowData.get("pickupDetails")}
-Notes: ${message}
+		const summary = `*Concierge Request Received* ✅
 
-Your chauffeur has been notified!`;
+Service: ${user.workflowData.get("serviceType")}
+Details: ${message}
+
+Your chauffeur has been notified! We will send you the driver details shortly.
+
+Reply 'Menu' to start over.`;
 
 		await sendTextMessage(user.phoneNumber, summary);
 
-		// Reset to main menu
+		// Reset
 		user.workflowState = STATES.MAIN_MENU;
 		user.workflowData = {};
 		await user.save();
-
-		setTimeout(() => sendWelcomeMenu(user.phoneNumber), 2000);
 	}
 }
 
 async function handleReferralFlow(user, message) {
-	// Simple flow, just goes back to menu after showing code
+	// Just return to menu
 	user.workflowState = STATES.MAIN_MENU;
 	await user.save();
-	await sendWelcomeMenu(user.phoneNumber);
+	await sendWelcomeMenu(user.phoneNumber, user.name);
 }

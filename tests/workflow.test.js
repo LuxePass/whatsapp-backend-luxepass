@@ -40,7 +40,7 @@ describe("Workflow Integration Tests", () => {
 		expect(mockUser.create).toHaveBeenCalled();
 		expect(sendTextMessage).toHaveBeenCalledWith(
 			from,
-			expect.stringContaining("Welcome to LuxePass")
+			expect.stringContaining("Welcome back to LuxePass")
 		);
 	});
 
@@ -66,20 +66,24 @@ describe("Workflow Integration Tests", () => {
 		);
 
 		// 3. Select Restaurant
-		await handleWorkflow(from, "Restaurant", "Test User");
-		expect(mockUserInstance.workflowState).toBe("BOOKING_DATE");
+		await handleWorkflow(from, "1", "Test User"); // "1" for Restaurant
+
+		// Check if error occurred
+		const lastCall =
+			sendTextMessage.mock.calls[sendTextMessage.mock.calls.length - 1];
+		if (lastCall && lastCall[1].includes("Sorry, I encountered an error")) {
+			console.error("Workflow error:", lastCall[1]);
+		}
+
+		expect(mockUserInstance.workflowState).toBe("BOOKING_DETAILS");
 		expect(mockUserInstance.workflowData.get("bookingType")).toBe("Restaurant");
 
-		// 4. Provide Date
-		await handleWorkflow(from, "Tomorrow 7PM", "Test User");
-		expect(mockUserInstance.workflowState).toBe("BOOKING_GUESTS");
-
-		// 5. Provide Guests
-		await handleWorkflow(from, "2", "Test User");
+		// 4. Provide Details
+		await handleWorkflow(from, "Dinner for 2 at Nobu, tomorrow 8PM", "Test User");
 		expect(mockUserInstance.workflowState).toBe("MAIN_MENU"); // Should reset
 		expect(sendTextMessage).toHaveBeenCalledWith(
 			from,
-			expect.stringContaining("Booking Request")
+			expect.stringContaining("Booking Request Received")
 		);
 	});
 
