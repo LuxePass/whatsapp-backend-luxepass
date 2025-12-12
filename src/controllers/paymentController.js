@@ -132,3 +132,93 @@ export async function verifyPayment(req, res) {
 		});
 	}
 }
+
+/**
+ * Handle Browser Redirect after Payment (GET request)
+ */
+export async function handlePaymentReturn(req, res) {
+	try {
+		const { reference, trxref } = req.query;
+		const ref = reference || trxref;
+
+		if (!ref) {
+			return res.status(400).send("No payment reference provided");
+		}
+
+		// Optionally verify payment status immediately
+		const paystackSecretKey = process.env.PAYSTACK_SECRET_KEY;
+		if (paystackSecretKey) {
+			try {
+				const response = await axios.get(
+					`https://api.paystack.co/transaction/verify/${ref}`,
+					{
+						headers: { Authorization: `Bearer ${paystackSecretKey}` },
+					}
+				);
+
+				const { status, metadata, amount } = response.data.data;
+				if (status === "success") {
+					// 1. Update Booking
+					const booking = await Booking.findOne({ paymentReference: ref });
+					if (booking && booking.status !== "confirmed") {
+						booking.status = "confirmed";
+						booking.paymentMetadata = metadata;
+						await booking.save();
+						logger.info("Booking confirmed via return URL", {
+							bookingId: booking.bookingId,
+						});
+
+						// 2. Notify User via WhatsApp (if not already done by webhook)
+						// We might risk double notification if webhook fires at same time.
+						// A simple check: if we just updated the status, we send the message.
+						// If status was already 'confirmed', we skip.
+
+						if (metadata && metadata.phoneNumber) {
+							const phoneNumber = metadata.phoneNumber;
+							const bookingType = metadata.bookingType || metadata.serviceType;
+							const tier = metadata.tier || "";
+
+							let message = `*Payment Verified!* ✅\n\nThank you! Your ${bookingType} booking has been confirmed.\nReference: ${ref}\n\nType 'Menu' to continue.`;
+
+							await sendTextMessage(phoneNumber, message);
+
+							// Reset flow
+							const user = await User.findOne({ phoneNumber });
+							if (user) {
+								user.workflowState = "MAIN_MENU";
+								user.workflowData = {};
+								await user.save();
+							}
+						}
+					}
+				}
+			} catch (err) {
+				logger.error("Error verifying payment on return", { error: err.message });
+			}
+		}
+
+		// Return HTML to browser
+		res.send(`
+			<html>
+				<head>
+					<title>Payment Successful</title>
+					<meta name="viewport" content="width=device-width, initial-scale=1">
+					<style>
+						body { font-family: sans-serif; text-align: center; padding: 40px; }
+						.success { color: #28a745; font-size: 24px; margin-bottom: 20px; }
+						p { color: #666; }
+					</style>
+				</head>
+				<body>
+					<div class="success">✅ Payment Successful!</div>
+					<p>Your booking has been confirmed.</p>
+					<p>You can verify this in your WhatsApp chat.</p>
+					<p>You may now close this window.</p>
+				</body>
+			</html>
+		`);
+	} catch (error) {
+		logger.error("Error handling payment return", { error: error.message });
+		res.status(500).send("An error occurred verifying your payment.");
+	}
+}
