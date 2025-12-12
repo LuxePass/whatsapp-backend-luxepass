@@ -1,6 +1,7 @@
 import axios from "axios";
 import config from "../config/env.js";
 import logger from "../config/logger.js";
+import { addMessage } from "../utils/messageStorage.js";
 
 const graphApiBaseUrl = `https://graph.facebook.com/${config.meta.graphApiVersion}`;
 
@@ -74,6 +75,24 @@ export async function sendTextMessage(to, message) {
 			messageId: response.data.messages?.[0]?.id,
 			to: normalizedTo,
 		});
+
+		// Save message to database
+		try {
+			const messageId = response.data.messages?.[0]?.id;
+			await addMessage({
+				messageId,
+				from: "sys", // System/Bot
+				to: normalizedTo,
+				content: message,
+				type: "text",
+				status: "sent",
+				timestamp: new Date(),
+			});
+		} catch (dbError) {
+			logger.error("Failed to save sent message to DB", {
+				error: dbError.message,
+			});
+		}
 
 		return {
 			success: true,
@@ -177,6 +196,24 @@ export async function sendInteractiveMessage(
 			to: normalizedTo,
 		});
 
+		// Save message to database
+		try {
+			const messageId = response.data.messages?.[0]?.id;
+			await addMessage({
+				messageId,
+				from: "sys",
+				to: normalizedTo,
+				content: bodyText, // Store the main text as content
+				type: "interactive",
+				status: "sent",
+				timestamp: new Date(),
+			});
+		} catch (dbError) {
+			logger.error("Failed to save sent interactive message to DB", {
+				error: dbError.message,
+			});
+		}
+
 		return {
 			success: true,
 			messageId: response.data.messages?.[0]?.id,
@@ -260,6 +297,24 @@ export async function sendMediaMessage(
 			to: normalizedTo,
 		});
 
+		// Save message to database
+		try {
+			const messageId = response.data.messages?.[0]?.id;
+			await addMessage({
+				messageId,
+				from: "sys",
+				to: normalizedTo,
+				content: caption || `[${type}] ${mediaUrl}`,
+				type: type,
+				status: "sent",
+				timestamp: new Date(),
+			});
+		} catch (dbError) {
+			logger.error("Failed to save sent media message to DB", {
+				error: dbError.message,
+			});
+		}
+
 		return {
 			success: true,
 			messageId: response.data.messages?.[0]?.id,
@@ -328,6 +383,24 @@ export async function sendTemplateMessage(
 			messageId: response.data.messages?.[0]?.id,
 			to: normalizedTo,
 		});
+
+		// Save message to database
+		try {
+			const messageId = response.data.messages?.[0]?.id;
+			await addMessage({
+				messageId,
+				from: "sys",
+				to: normalizedTo,
+				content: `[Template: ${templateName}]`,
+				type: "template",
+				status: "sent",
+				timestamp: new Date(),
+			});
+		} catch (dbError) {
+			logger.error("Failed to save sent template message to DB", {
+				error: dbError.message,
+			});
+		}
 
 		return {
 			success: true,

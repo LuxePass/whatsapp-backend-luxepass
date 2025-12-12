@@ -11,6 +11,10 @@ const userSchema = new mongoose.Schema(
 		name: {
 			type: String,
 		},
+		email: {
+			type: String,
+			index: true,
+		},
 		isLiveChatActive: {
 			type: Boolean,
 			default: false,

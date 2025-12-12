@@ -1,6 +1,7 @@
 import axios from "axios";
 import logger from "../config/logger.js";
 import User from "../models/User.js";
+import Booking from "../models/Booking.js";
 import { sendTextMessage } from "../services/whatsappService.js";
 
 /**
@@ -33,6 +34,17 @@ export async function handlePaymentCallback(req, res) {
 			const { reference, metadata } = event.data;
 
 			logger.info("Payment successful", { reference, metadata });
+
+			// Find booking and update status
+			const booking = await Booking.findOne({ paymentReference: reference });
+			if (booking) {
+				booking.status = "confirmed";
+				booking.paymentMetadata = metadata;
+				await booking.save();
+				logger.info("Booking confirmed", { bookingId: booking.bookingId });
+			} else {
+				logger.warn("Booking not found for successful payment", { reference });
+			}
 
 			// Find user and send confirmation
 			if (metadata && metadata.phoneNumber) {
