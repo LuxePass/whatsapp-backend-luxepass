@@ -102,19 +102,7 @@ export async function sendMessage(req, res) {
 		}
 
 		if (result.success) {
-			// Store sent message in our storage
-			if (type === "text") {
-				await addMessage({
-					conversationId: to.replace(/\D/g, ""),
-					to,
-					from: null,
-					content: message,
-					timestamp: new Date().toISOString(),
-					messageId: result.messageId,
-					type: "text",
-				});
-			}
-
+			// Message already saved in whatsappService
 			return res.status(200).json({
 				success: true,
 				messageId: result.messageId,
