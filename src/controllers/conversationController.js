@@ -94,8 +94,9 @@ export async function getConversationMessages(req, res) {
 				id: msg.messageId, // Use messageId as id
 				messageId: msg.messageId, // Include WhatsApp message ID for status tracking
 				conversationId: msg.conversationId,
-				sender: msg.from ? "client" : "pa",
-				clientName: msg.from ? undefined : null,
+				sender: msg.from === "sys" ? "pa" : msg.from ? "client" : "pa",
+				isBot: msg.from === "sys",
+				clientName: msg.from && msg.from !== "sys" ? undefined : null,
 				content: msg.content,
 				timestamp: timestampStr,
 				timestampValue: timestampValue, // Include numeric timestamp for sorting/grouping
