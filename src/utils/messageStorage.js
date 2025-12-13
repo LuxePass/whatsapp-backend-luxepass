@@ -40,7 +40,9 @@ export async function getOrCreateConversation(phoneNumber, name = null) {
  */
 export async function addMessage(message) {
 	const { from, to, content, timestamp, messageId, type, status } = message;
-	const phoneNumber = from || to;
+	// If message is from system, associate it with the recipient (user)
+	// Otherwise, it's from the user
+	const phoneNumber = from === "sys" ? to : from;
 	const conversationId = phoneNumber.replace(/\D/g, "");
 
 	try {
