@@ -8,6 +8,7 @@ import {
 import logger from "../config/logger.js";
 import axios from "axios";
 import config from "../config/env.js";
+import backendService from "./backendService.js";
 
 // Workflow States
 const STATES = {
@@ -151,6 +152,23 @@ async function handleOnboarding(user, message) {
 		user.workflowState = STATES.MAIN_MENU;
 		await user.save();
 
+		// Sync with core backend
+		try {
+			await backendService.registerUser({
+				name: user.name,
+				phone: user.phoneNumber,
+				email: user.email,
+			});
+			logger.info("User synced with core backend after onboarding", {
+				phone: user.phoneNumber,
+			});
+		} catch (syncError) {
+			logger.error("Failed to sync user with core backend", {
+				phone: user.phoneNumber,
+				error: syncError.message,
+			});
+		}
+
 		await sendWelcomeMenu(user.phoneNumber, user.name);
 	}
 }
@@ -172,6 +190,22 @@ export async function handleWorkflow(from, message, name) {
 		let user = await User.findOne({ phoneNumber });
 
 		if (!user) {
+			// Check if user exists in core backend
+			const coreUser = await backendService.checkUserExists(phoneNumber);
+			if (coreUser) {
+				user = await User.create({
+					phoneNumber,
+					name: coreUser.name || name || "",
+					email: coreUser.email || "",
+					workflowState: STATES.MAIN_MENU,
+				});
+				logger.info("Existing core backend user found and synced locally", {
+					phoneNumber,
+				});
+				await sendWelcomeMenu(phoneNumber, user.name);
+				return;
+			}
+
 			// Check if the first message is a request for live chat
 			const isLiveChatRequest =
 				message.toLowerCase().includes("live chat") ||
@@ -389,6 +423,27 @@ async function handleBookingFlow(user, message) {
 		}
 
 		user.workflowData.set("bookingType", type);
+
+		if (type === "hotel") {
+			const listings = await backendService.getListings({ limit: 3 });
+			if (listings && listings.length > 0) {
+				user.workflowState = STATES.BOOKING_TYPE;
+				await user.save();
+
+				const listingButtons = listings.map((l) => ({
+					id: `list_${l.id}`,
+					title: l.name.length > 20 ? l.name.substring(0, 17) + "..." : l.name,
+				}));
+
+				await sendInteractiveMessage(
+					user.phoneNumber,
+					"*LuxePass Hotels* 🛏️\n\nSelect a property to book:",
+					listingButtons
+				);
+				return;
+			}
+		}
+
 		user.workflowState = STATES.BOOKING_TYPE;
 		await user.save();
 
@@ -410,24 +465,37 @@ Select your tier:
 
 		await sendInteractiveMessage(user.phoneNumber, bodyText, tierButtons);
 	} else if (user.workflowState === STATES.BOOKING_TYPE) {
-		const tier = message.trim().toLowerCase();
+		const selection = message.trim().toLowerCase();
 		const validTiers = ["standard", "premium", "vip"];
 
-		if (!validTiers.includes(tier)) {
+		if (selection.startsWith("list_")) {
+			const listingId = selection.replace("list_", "");
+			user.workflowData.set("listingId", listingId);
+			user.workflowState = STATES.BOOKING_DETAILS_NAME;
+			await user.save();
+
 			await sendTextMessage(
 				user.phoneNumber,
-				"Please select a valid tier using the buttons."
+				"Great choice! Let's get your details.\n\nWhat is the name for this booking?"
 			);
 			return;
 		}
 
-		user.workflowData.set("tier", tier);
+		if (!validTiers.includes(selection)) {
+			await sendTextMessage(
+				user.phoneNumber,
+				"Please select a valid option using the buttons."
+			);
+			return;
+		}
+
+		user.workflowData.set("tier", selection);
 		user.workflowState = STATES.BOOKING_DETAILS_NAME;
 		await user.save();
 
 		await sendTextMessage(
 			user.phoneNumber,
-			"Great availability! let's get your details.\n\nWhat is the name for this booking?"
+			"Great availability! Let's get your details.\n\nWhat is the name for this booking?"
 		);
 	} else if (user.workflowState === STATES.BOOKING_DETAILS_NAME) {
 		user.workflowData.set("bookingName", message.trim());
