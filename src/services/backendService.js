@@ -3,7 +3,7 @@ import config from "../config/env.js";
 import logger from "../config/logger.js";
 
 const CORE_BACKEND_URL =
-	process.env.CORE_BACKEND_URL || "https://api.luxepass.com/api/v1";
+	process.env.CORE_BACKEND_URL || "https://backend-luxepass.onrender.com/api/v1";
 
 const apiClient = axios.create({
 	baseURL: CORE_BACKEND_URL,
@@ -102,9 +102,71 @@ export async function getListings(params = {}) {
 	}
 }
 
+/**
+ * Get wallet for a user by identifier
+ * @param {string} identifier - userId or uniqueId
+ * @returns {Promise<Object|null>}
+ */
+export async function getWallet(identifier) {
+	try {
+		const response = await apiClient.get(`/wallet/${identifier}`);
+		if (response.data.success) {
+			return response.data.data;
+		}
+		return null;
+	} catch (error) {
+		logger.error("Error fetching wallet from core backend", {
+			identifier,
+			error: error.message,
+		});
+		return null;
+	}
+}
+
+/**
+ * Set security question for a user
+ * @param {Object} data - { userIdentifier, question, answer }
+ * @returns {Promise<boolean>}
+ */
+export async function setSecurityQuestion(data) {
+	try {
+		const response = await apiClient.post("/auth/security-question", data);
+		return response.data.success;
+	} catch (error) {
+		logger.error("Error setting security question in core backend", {
+			userIdentifier: data.userIdentifier,
+			error: error.message,
+		});
+		return false;
+	}
+}
+
+/**
+ * Initiate a transfer from user's wallet
+ * @param {Object} data - { securityAnswer, amount, narration, [userId/phone/etc] }
+ * @returns {Promise<Object|null>}
+ */
+export async function initiateTransfer(data) {
+	try {
+		const response = await apiClient.post("/transfers", data);
+		if (response.data.success) {
+			return response.data.data;
+		}
+		return null;
+	} catch (error) {
+		logger.error("Error initiating transfer in core backend", {
+			error: error.response?.data?.error?.message || error.message,
+		});
+		return null;
+	}
+}
+
 export default {
 	checkUserExists,
 	registerUser,
 	getListings,
+	getWallet,
+	setSecurityQuestion,
+	initiateTransfer,
 	normalizePhone,
 };

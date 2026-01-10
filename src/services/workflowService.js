@@ -10,11 +10,12 @@ import axios from "axios";
 import config from "../config/env.js";
 import backendService from "./backendService.js";
 
-// Workflow States
 const STATES = {
 	// Onboarding
 	ONBOARDING_NAME: "ONBOARDING_NAME",
 	ONBOARDING_EMAIL: "ONBOARDING_EMAIL",
+	ONBOARDING_SECURITY_QUESTION: "ONBOARDING_SECURITY_QUESTION",
+	ONBOARDING_SECURITY_ANSWER: "ONBOARDING_SECURITY_ANSWER",
 
 	MAIN_MENU: "MAIN_MENU",
 	BOOKING_START: "BOOKING_START",
@@ -27,13 +28,9 @@ const STATES = {
 	BOOKING_PAYMENT: "BOOKING_PAYMENT",
 
 	CONCIERGE_START: "CONCIERGE_START",
-	CONCIERGE_TYPE: "CONCIERGE_TYPE",
-	// Granular Concierge Details
-	CONCIERGE_DETAILS_PICKUP: "CONCIERGE_DETAILS_PICKUP",
-	CONCIERGE_DETAILS_DROPOFF: "CONCIERGE_DETAILS_DROPOFF",
-	CONCIERGE_DETAILS_DATE: "CONCIERGE_DETAILS_DATE",
-	CONCIERGE_DETAILS_PASSENGERS: "CONCIERGE_DETAILS_PASSENGERS",
-	CONCIERGE_PAYMENT: "CONCIERGE_PAYMENT",
+	CONCIERGE_DETAILS_AMOUNT: "CONCIERGE_DETAILS_AMOUNT",
+	CONCIERGE_DETAILS_NARRATION: "CONCIERGE_DETAILS_NARRATION",
+	CONCIERGE_VERIFY: "CONCIERGE_VERIFY",
 
 	PERSONAL_ASSISTANT: "PERSONAL_ASSISTANT",
 	REFERRAL_START: "REFERRAL_START",
@@ -132,7 +129,7 @@ async function handleOnboarding(user, message) {
 
 		await sendTextMessage(
 			user.phoneNumber,
-			`Nice to meet you, ${name}! 👋\n\nPlease provide your email address for booking confirmations:`
+			`Nice to meet you, ${name}! 👋\n\nPlease provide your email address for account registration:`
 		);
 	} else if (user.workflowState === STATES.ONBOARDING_EMAIL) {
 		const email = message.trim();
@@ -147,27 +144,105 @@ async function handleOnboarding(user, message) {
 		}
 
 		user.email = email;
-		user.workflowData.set("email", email); // Keep in usage data for easy access
+		user.workflowData.set("email", email);
 
-		user.workflowState = STATES.MAIN_MENU;
-		await user.save();
-
-		// Sync with core backend
+		// Sync with core backend immediately after getting name and email
 		try {
-			await backendService.registerUser({
+			const coreUser = await backendService.registerUser({
 				name: user.name,
 				phone: user.phoneNumber,
 				email: user.email,
 			});
-			logger.info("User synced with core backend after onboarding", {
-				phone: user.phoneNumber,
-			});
+			if (coreUser) {
+				logger.info("User registered on core backend", {
+					phone: user.phoneNumber,
+					id: coreUser.id,
+				});
+			}
 		} catch (syncError) {
-			logger.error("Failed to sync user with core backend", {
+			logger.error("Failed to register user on core backend", {
 				phone: user.phoneNumber,
 				error: syncError.message,
 			});
 		}
+
+		user.workflowState = STATES.ONBOARDING_SECURITY_QUESTION;
+		await user.save();
+
+		await sendTextMessage(
+			user.phoneNumber,
+			"Great! Now, let's set a security question to protect your account.\n\nType a question only you know the answer to (e.g., 'What was my first pet's name?'):"
+		);
+	} else if (user.workflowState === STATES.ONBOARDING_SECURITY_QUESTION) {
+		const question = message.trim();
+		if (question.length < 5) {
+			await sendTextMessage(
+				user.phoneNumber,
+				"Please provide a more descriptive security question."
+			);
+			return;
+		}
+
+		user.workflowData.set("securityQuestion", question);
+		user.workflowState = STATES.ONBOARDING_SECURITY_ANSWER;
+		await user.save();
+
+		await sendTextMessage(
+			user.phoneNumber,
+			`Got it. Now, what is the answer to: "${question}"?`
+		);
+	} else if (user.workflowState === STATES.ONBOARDING_SECURITY_ANSWER) {
+		const answer = message.trim();
+		if (answer.length < 2) {
+			await sendTextMessage(
+				user.phoneNumber,
+				"The answer must be at least 2 characters."
+			);
+			return;
+		}
+
+		const question = user.workflowData.get("securityQuestion");
+
+		// Set security question on core backend
+		try {
+			const success = await backendService.setSecurityQuestion({
+				userIdentifier: user.phoneNumber,
+				question: question,
+				answer: answer,
+			});
+
+			if (success) {
+				logger.info("Security question set on core backend", {
+					phone: user.phoneNumber,
+				});
+			} else {
+				throw new Error("Failed to set security question");
+			}
+		} catch (error) {
+			logger.error("Error setting security question", {
+				phone: user.phoneNumber,
+				error: error.message,
+			});
+		}
+
+		user.workflowState = STATES.MAIN_MENU;
+		await user.save();
+
+		// Fetch wallet info to show virtual account
+		let walletInfo = "";
+		try {
+			const wallet = await backendService.getWallet(user.phoneNumber);
+			if (wallet && wallet.virtualAccount) {
+				walletInfo = `\n\n💳 *Your Wallet Details*\nBank: ${wallet.virtualAccount.bankName}\nAccount Name: ${wallet.virtualAccount.accountName}\nAccount Number: ${wallet.virtualAccount.accountNumber}\n\nYou can fund this account to make bookings instantly!`;
+			}
+		} catch (error) {
+			logger.error("Error fetching wallet info", { error: error.message });
+		}
+
+		await sendTextMessage(
+			user.phoneNumber,
+			`Setup complete! Welcome to LuxePass. 🥂${walletInfo}`
+		);
 
 		await sendWelcomeMenu(user.phoneNumber, user.name);
 	}
@@ -286,6 +361,8 @@ Please wait a moment, one of our specialists will be with you shortly to assist 
 		switch (user.workflowState) {
 			case STATES.ONBOARDING_NAME:
 			case STATES.ONBOARDING_EMAIL:
+			case STATES.ONBOARDING_SECURITY_QUESTION:
+			case STATES.ONBOARDING_SECURITY_ANSWER:
 				await handleOnboarding(user, message);
 				break;
 			case STATES.MAIN_MENU:
@@ -297,16 +374,15 @@ Please wait a moment, one of our specialists will be with you shortly to assist 
 			case STATES.BOOKING_DETAILS_DATE:
 			case STATES.BOOKING_DETAILS_GUESTS:
 			case STATES.BOOKING_DETAILS_REQUESTS:
-			case STATES.BOOKING_PAYMENT:
 				await handleBookingFlow(user, message);
 				break;
+			case STATES.BOOKING_PAYMENT:
+				await handleBookingPaymentVerify(user, message);
+				break;
 			case STATES.CONCIERGE_START:
-			case STATES.CONCIERGE_TYPE:
-			case STATES.CONCIERGE_DETAILS_PICKUP:
-			case STATES.CONCIERGE_DETAILS_DROPOFF:
-			case STATES.CONCIERGE_DETAILS_DATE:
-			case STATES.CONCIERGE_DETAILS_PASSENGERS:
-			case STATES.CONCIERGE_PAYMENT:
+			case STATES.CONCIERGE_DETAILS_AMOUNT:
+			case STATES.CONCIERGE_DETAILS_NARRATION:
+			case STATES.CONCIERGE_VERIFY:
 				await handleConciergeFlow(user, message);
 				break;
 			case STATES.REFERRAL_START:
@@ -334,9 +410,10 @@ async function sendWelcomeMenu(to, name) {
 Please select a service:`;
 
 	const buttons = [
-		{ id: "1", title: "🏨 Booking" },
+		{ id: "1", title: "🏨 Bookings" },
 		{ id: "2", title: "🚗 Concierge" },
-		{ id: "3", title: "👤 Live Support" },
+		{ id: "3", title: "💳 Check Balance" },
+		{ id: "4", title: "👤 Live Support" },
 	];
 
 	await sendInteractiveMessage(to, bodyText, buttons);
@@ -389,15 +466,43 @@ async function handleMainMenu(user, message) {
 			break;
 
 		case "3":
+			// Check Balance
+			try {
+				const wallet = await backendService.getWallet(user.phoneNumber);
+				if (wallet) {
+					let balanceText = `*Your Wallet* 💳\n\nBalance: ₦${Number(
+						wallet.balance
+					).toLocaleString()}`;
+					if (wallet.virtualAccount) {
+						balanceText += `\n\n*Funding Details:*\nBank: ${wallet.virtualAccount.bankName}\nAccount Name: ${wallet.virtualAccount.accountName}\nAccount Number: ${wallet.virtualAccount.accountNumber}`;
+					}
+					await sendTextMessage(user.phoneNumber, balanceText);
+				} else {
+					await sendTextMessage(
+						user.phoneNumber,
+						"Sorry, we couldn't fetch your wallet details at the moment."
+					);
+				}
+			} catch (error) {
+				logger.error("Error in Check Balance", { error: error.message });
+				await sendTextMessage(
+					user.phoneNumber,
+					"An error occurred while fetching your balance."
+				);
+			}
+			await sendWelcomeMenu(user.phoneNumber, user.name);
+			break;
+
+		case "4":
 			user.isLiveChatActive = true;
 			user.workflowState = STATES.PERSONAL_ASSISTANT;
 			await user.save();
 			await sendTextMessage(
 				user.phoneNumber,
 				`*Personal Assistant* 👤
-
-Connecting you with a Live Agent...
-Please wait a moment, one of our specialists will be with you shortly to assist with your request.`
+ 
+ Connecting you with a Live Agent...
+ Please wait a moment, one of our specialists will be with you shortly to assist with your request.`
 			);
 			break;
 
@@ -424,30 +529,35 @@ async function handleBookingFlow(user, message) {
 
 		user.workflowData.set("bookingType", type);
 
-		if (type === "hotel") {
-			const listings = await backendService.getListings({ limit: 3 });
-			if (listings && listings.length > 0) {
-				user.workflowState = STATES.BOOKING_TYPE;
-				await user.save();
+		const listings = await backendService.getListings({
+			limit: 3,
+			type: type === "hotel" ? "APARTMENT" : undefined, // Example filter
+		});
 
-				const listingButtons = listings.map((l) => ({
-					id: `list_${l.id}`,
-					title: l.name.length > 20 ? l.name.substring(0, 17) + "..." : l.name,
-				}));
+		if (listings && listings.length > 0) {
+			user.workflowState = STATES.BOOKING_TYPE;
+			await user.save();
 
-				await sendInteractiveMessage(
-					user.phoneNumber,
-					"*LuxePass Hotels* 🛏️\n\nSelect a property to book:",
-					listingButtons
-				);
-				return;
-			}
+			const listingButtons = listings.map((l) => ({
+				id: `list_${l.id}`,
+				title: l.name.length > 20 ? l.name.substring(0, 17) + "..." : l.name,
+			}));
+
+			let bodyText = `*LuxePass ${
+				type.charAt(0).toUpperCase() + type.slice(1)
+			}s* 🏨\n\nSelect an option to book:\n`;
+			listings.forEach((l) => {
+				bodyText += `\n• *${l.name}*: ₦${Number(l.pricePerNight).toLocaleString()}`;
+			});
+
+			await sendInteractiveMessage(user.phoneNumber, bodyText, listingButtons);
+			return;
 		}
 
 		user.workflowState = STATES.BOOKING_TYPE;
 		await user.save();
 
-		// Show pricing tiers
+		// Fallback to pricing tiers if no listings found
 		const tierButtons = [
 			{ id: "standard", title: "Standard" },
 			{ id: "premium", title: "Premium" },
@@ -455,11 +565,10 @@ async function handleBookingFlow(user, message) {
 		];
 
 		const prices = PRICING[type];
-		const bodyText = `*${type.charAt(0).toUpperCase() + type.slice(1)} Booking* 🏨
-
-Select your tier:
-
-• Standard: ₦${prices.standard.toLocaleString()}
+		const bodyText = `*${
+			type.charAt(0).toUpperCase() + type.slice(1)
+		} Booking* 🏨\n\nSelect your tier:
+\n• Standard: ₦${prices.standard.toLocaleString()}
 • Premium: ₦${prices.premium.toLocaleString()}
 • VIP: ₦${prices.vip.toLocaleString()}`;
 
@@ -471,6 +580,19 @@ Select your tier:
 		if (selection.startsWith("list_")) {
 			const listingId = selection.replace("list_", "");
 			user.workflowData.set("listingId", listingId);
+
+			// Fetch listing to get price
+			try {
+				const listings = await backendService.getListings();
+				const listing = listings.find((l) => l.id === listingId);
+				if (listing) {
+					user.workflowData.set("amount", listing.pricePerNight.toString());
+					user.workflowData.set("bookingTarget", listing.name);
+				}
+			} catch (error) {
+				logger.error("Error fetching listing details", { error: error.message });
+			}
+
 			user.workflowState = STATES.BOOKING_DETAILS_NAME;
 			await user.save();
 
@@ -489,13 +611,17 @@ Select your tier:
 			return;
 		}
 
+		const type = user.workflowData.get("bookingType");
+		const amount = PRICING[type][selection];
+
 		user.workflowData.set("tier", selection);
+		user.workflowData.set("amount", amount.toString());
 		user.workflowState = STATES.BOOKING_DETAILS_NAME;
 		await user.save();
 
 		await sendTextMessage(
 			user.phoneNumber,
-			"Great availability! Let's get your details.\n\nWhat is the name for this booking?"
+			`Great choice! The ${selection} package is ₦${amount.toLocaleString()}.\n\nWhat is the name for this booking?`
 		);
 	} else if (user.workflowState === STATES.BOOKING_DETAILS_NAME) {
 		user.workflowData.set("bookingName", message.trim());
@@ -546,182 +672,163 @@ Select your tier:
 }
 
 async function processBookingPayment(user) {
-	const bookingType = user.workflowData.get("bookingType");
-	const tier = user.workflowData.get("tier");
-	const amount = PRICING[bookingType][tier];
+	const amount = Number(user.workflowData.get("amount"));
+	const bookingTarget =
+		user.workflowData.get("bookingTarget") ||
+		user.workflowData.get("bookingType");
 
 	const bookingName = user.workflowData.get("bookingName");
 	const bookingDate = user.workflowData.get("bookingDate");
 	const bookingGuests = user.workflowData.get("bookingGuests");
 	const bookingRequests = user.workflowData.get("bookingRequests");
-	const bookingDetails = `Date: ${bookingDate}\nGuests: ${bookingGuests}\nRequests: ${bookingRequests}`;
 
-	const reference = `LUXE_BK_${user.phoneNumber}_${Date.now()}`;
-	const email =
-		user.workflowData.get("email") || `${user.phoneNumber}@luxepass.com`;
-
-	// Create Booking Record BEFORE Payment
+	// Fetch wallet info
+	let walletInfo = "Wallet details unavailable.";
 	try {
-		// Find existing user ID
-		const userDoc = await User.findOne({ phoneNumber: user.phoneNumber });
-
-		await Booking.create({
-			bookingId: reference,
-			user: userDoc._id,
-			type: bookingType,
-			tier: tier,
-			details: {
-				name: bookingName,
-				date: new Date(), // Storing current date as placeholder or parsing string if possible.
-				// Since date is free text, we might want to store it in a string field or keep it in 'requests/details' string if schema enforces Date.
-				// The schema I created has `date: Date`. I should try to parse it or fall back to now.
-				// However, free text date might fail parsing.
-				// I'll update schema or be loose.
-				// For now let's try to parse, if fail, store in metadata/requests.
-				// Actually my schema has `date: Date`. This is risky with free text.
-				// I will assume for now I can put it in `requests` if it fails, but I set `date` in `details` object.
-				// I'll just use the text logic for now and maybe update schema to be String for flexibility or try to parse.
-				// Let's use `new Date()` for the `date` field to avoid crash, and store the text in `requests` or separate field.
-				// Wait, I can just store the string in `details.name` etc.
-				// Ah, my schema `details` subdocument has `date: Date`.
-				// I should probably change the schema to String for `date` to be safe with free text input.
-				// I will do that in a separate step or just cast `new Date()` and append the string date to requests.
-				// I'll append to requests for safety.
-			},
-			// Correction: I should store the text date.
-			// I'll update the Booking creation to be safe.
-			amount: amount,
-			currency: "NGN",
-			status: "pending",
-			paymentReference: reference,
-		});
-
-		// Update details with text date if schema enforces Date
-		// Actually, let's just create it with what we have.
-	} catch (err) {
-		logger.error("Error creating booking record", { error: err.message });
-		await sendTextMessage(
-			user.phoneNumber,
-			"System error creating booking. Please try again."
-		);
-		return;
+		const wallet = await backendService.getWallet(user.phoneNumber);
+		if (wallet && wallet.virtualAccount) {
+			walletInfo = `\n🏦 *Fund Your Wallet to Pay*\nBank: ${
+				wallet.virtualAccount.bankName
+			}\nAccount Name: ${wallet.virtualAccount.accountName}\nAccount Number: ${
+				wallet.virtualAccount.accountNumber
+			}\n\nBalance: ₦${Number(wallet.balance).toLocaleString()}`;
+		}
+	} catch (error) {
+		logger.error("Error fetching wallet info", { error: error.message });
 	}
 
-	// Re-instantiate details for payment metadata
-	const payment = await initializePaystackPayment(email, amount, reference, {
-		phoneNumber: user.phoneNumber,
-		bookingType,
-		tier,
-		details: bookingDetails,
-		bookingId: reference,
-	});
+	await sendTextMessage(
+		user.phoneNumber,
+		`*Booking Summary* 🏨\n\nTarget: ${bookingTarget}\nAmount: ₦${amount.toLocaleString()}\n\n*Details:*\nName: ${bookingName}\nDate: ${bookingDate}\nGuests: ${bookingGuests}\nRequests: ${bookingRequests}\n\n${walletInfo}\n\n*To complete this payment, please type your Security Answer:*`
+	);
+}
 
-	if (payment.success) {
-		user.workflowData.set("paymentReference", reference);
-		await user.save();
+// In handleWorkflow, we need to handle the security answer for booking payment if in BOOKING_PAYMENT state
+async function handleBookingPaymentVerify(user, message) {
+	const securityAnswer = message.trim();
+	const amount = Number(user.workflowData.get("amount"));
+	const bookingTarget =
+		user.workflowData.get("bookingTarget") ||
+		user.workflowData.get("bookingType");
 
+	try {
+		const result = await backendService.initiateTransfer({
+			userIdentifier: user.phoneNumber,
+			securityAnswer: securityAnswer,
+			amount: amount,
+			narration: `Booking: ${bookingTarget}`,
+		});
+
+		if (result) {
+			// Create booking record on core backend or local
+			const reference = result.reference;
+			const userDoc = await User.findOne({ phoneNumber: user.phoneNumber });
+
+			await Booking.create({
+				bookingId: reference,
+				user: userDoc._id,
+				type: user.workflowData.get("bookingType"),
+				amount: amount,
+				status: "confirmed",
+				paymentReference: reference,
+				details: {
+					name: user.workflowData.get("bookingName"),
+					date: new Date(), // placeholder
+					guests: Number(user.workflowData.get("bookingGuests")),
+					requests: user.workflowData.get("bookingRequests"),
+				},
+			});
+
+			await sendTextMessage(
+				user.phoneNumber,
+				`*Booking Confirmed!* 🎉\n\nYour payment of ₦${amount.toLocaleString()} for ${bookingTarget} was successful.\n\nType 'Menu' to return to the main menu.`
+			);
+			user.workflowState = STATES.MAIN_MENU;
+			await user.save();
+		} else {
+			throw new Error("Payment failed");
+		}
+	} catch (error) {
+		logger.error("Error in booking payment", { error: error.message });
 		await sendTextMessage(
 			user.phoneNumber,
-			`*Booking Summary* ✅
-
-Type: ${bookingType.charAt(0).toUpperCase() + bookingType.slice(1)}
-Tier: ${tier.charAt(0).toUpperCase() + tier.slice(1)}
-Amount: ₦${amount.toLocaleString()}
-
-Name: ${bookingName}
-Date: ${bookingDate}
-Guests: ${bookingGuests}
-Requests: ${bookingRequests}
-
-Please complete your payment using this link:
-${payment.authorizationUrl}
-
-Once payment is confirmed, we will process your booking immediately!`
+			"Sorry, we couldn't process your payment. Please ensure you have enough balance and provided the correct security answer.\n\nType 'Menu' to restart."
 		);
-	} else {
-		await sendTextMessage(
-			user.phoneNumber,
-			`Sorry, we encountered an error generating your payment link. Please try again or contact support.
-
-Type 'Menu' to return to the main menu.`
-		);
-		user.workflowState = STATES.MAIN_MENU;
-		await user.save();
 	}
 }
 
 async function handleConciergeFlow(user, message) {
 	if (user.workflowState === STATES.CONCIERGE_START) {
-		const type = message.trim().toLowerCase();
-		const validTypes = ["airport", "city", "fleet"];
-
-		if (!validTypes.includes(type)) {
+		const amount = message.trim().replace(/\D/g, "");
+		if (!amount || Number(amount) <= 0) {
 			await sendTextMessage(
 				user.phoneNumber,
-				"Please select a valid service using the buttons."
+				"*Concierge Service* 🚗\n\nPlease enter the amount of emergency funds you need from your wallet (e.g., 5000):"
 			);
 			return;
 		}
 
-		user.workflowData.set("serviceType", type);
-		user.workflowState = STATES.CONCIERGE_DETAILS_PICKUP;
-		await user.save();
-
-		const serviceNames = {
-			airport: "Airport Transfer",
-			city: "City Transfer",
-			fleet: "Fleet Rental",
-		};
-
-		await sendTextMessage(
-			user.phoneNumber,
-			`*${serviceNames[type]}* 🚗
-
-Excellent choice. Where would you like to be picked up?`
-		);
-	} else if (user.workflowState === STATES.CONCIERGE_DETAILS_PICKUP) {
-		user.workflowData.set("pickupLocation", message.trim());
-		user.workflowState = STATES.CONCIERGE_DETAILS_DROPOFF;
+		user.workflowData.set("amount", amount);
+		user.workflowState = STATES.CONCIERGE_DETAILS_NARRATION;
 		await user.save();
 
 		await sendTextMessage(
 			user.phoneNumber,
-			"And where is your destination (Dropoff)?"
+			"What is the reason/narration for this request?"
 		);
-	} else if (user.workflowState === STATES.CONCIERGE_DETAILS_DROPOFF) {
-		user.workflowData.set("dropoffLocation", message.trim());
-		user.workflowState = STATES.CONCIERGE_DETAILS_DATE;
-		await user.save();
-
-		await sendTextMessage(
-			user.phoneNumber,
-			"When do you need this service? (Date & Time)"
-		);
-	} else if (user.workflowState === STATES.CONCIERGE_DETAILS_DATE) {
-		user.workflowData.set("serviceDate", message.trim());
-		user.workflowState = STATES.CONCIERGE_DETAILS_PASSENGERS;
-		await user.save();
-
-		await sendTextMessage(user.phoneNumber, "How many passengers?");
-	} else if (user.workflowState === STATES.CONCIERGE_DETAILS_PASSENGERS) {
-		const passengers = message.trim().replace(/\D/g, "");
-		if (!passengers) {
+	} else if (user.workflowState === STATES.CONCIERGE_DETAILS_NARRATION) {
+		const narration = message.trim();
+		if (narration.length < 5) {
 			await sendTextMessage(
 				user.phoneNumber,
-				"Please enter a valid number for passengers."
+				"Please provide a slightly more detailed narration."
 			);
 			return;
 		}
-		user.workflowData.set("passengers", passengers);
-		user.workflowState = STATES.CONCIERGE_PAYMENT;
+
+		user.workflowData.set("narration", narration);
+		user.workflowState = STATES.CONCIERGE_VERIFY;
 		await user.save();
 
-		await processConciergePayment(user);
-	} else if (user.workflowState === STATES.CONCIERGE_PAYMENT) {
 		await sendTextMessage(
 			user.phoneNumber,
-			"Please complete your payment using the link provided above. Once confirmed, we will assign your chauffeur.\n\nType 'Menu' to start over."
+			"To confirm this request, please provide your *Security Answer*:"
 		);
+	} else if (user.workflowState === STATES.CONCIERGE_VERIFY) {
+		const securityAnswer = message.trim();
+		const amount = user.workflowData.get("amount");
+		const narration = user.workflowData.get("narration");
+
+		// Initiate transfer
+		try {
+			const result = await backendService.initiateTransfer({
+				userIdentifier: user.phoneNumber,
+				securityAnswer: securityAnswer,
+				amount: Number(amount),
+				narration: `Concierge: ${narration}`,
+			});
+
+			if (result) {
+				await sendTextMessage(
+					user.phoneNumber,
+					`*Concierge Request Successful* ✅\n\nYour request for ₦${Number(
+						amount
+					).toLocaleString()} has been processed.\nReference: ${result.reference}`
+				);
+			} else {
+				throw new Error("Transfer failed or invalid security answer");
+			}
+		} catch (error) {
+			logger.error("Error in concierge transfer", { error: error.message });
+			await sendTextMessage(
+				user.phoneNumber,
+				"Sorry, your request could not be completed. Please check your balance and security answer, then try again."
+			);
+		}
+
+		user.workflowState = STATES.MAIN_MENU;
+		await user.save();
+		await sendWelcomeMenu(user.phoneNumber, user.name);
 	}
 }
 
