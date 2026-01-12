@@ -407,13 +407,14 @@ Please wait a moment, one of our specialists will be with you shortly to assist 
 async function sendWelcomeMenu(to, name) {
 	const bodyText = `Welcome back to LuxePass, ${name || "Guest"}! 👋
 
-Please select a service:`;
+Please select a service:
+
+4. 👤 Live Support`;
 
 	const buttons = [
 		{ id: "1", title: "🏨 Bookings" },
 		{ id: "2", title: "🚗 Concierge" },
 		{ id: "3", title: "💳 Check Balance" },
-		{ id: "4", title: "👤 Live Support" },
 	];
 
 	await sendInteractiveMessage(to, bodyText, buttons);
