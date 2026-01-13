@@ -1,5 +1,4 @@
 import axios from "axios";
-import config from "../config/env.js";
 import logger from "../config/logger.js";
 
 const CORE_BACKEND_URL =

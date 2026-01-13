@@ -58,6 +58,14 @@ const PRICING = {
 	fleet: 100000,
 };
 
+const SECURITY_QUESTIONS = [
+	"What was the name of your first pet?",
+	"What is your mother's maiden name?",
+	"What was the name of your elementary school?",
+	"In what city were you born?",
+	"What is your favorite book?",
+];
+
 /**
  * Initialize Paystack payment
  */
@@ -169,20 +177,26 @@ async function handleOnboarding(user, message) {
 		user.workflowState = STATES.ONBOARDING_SECURITY_QUESTION;
 		await user.save();
 
-		await sendTextMessage(
-			user.phoneNumber,
-			"Great! Now, let's set a security question to protect your account.\n\nType a question only you know the answer to (e.g., 'What was my first pet's name?'):"
-		);
+		let questionList =
+			"Great! Now, let's set a security question to protect your account.\n\nPlease select a question by typing the number (1-5):\n";
+		SECURITY_QUESTIONS.forEach((q, i) => {
+			questionList += `\n${i + 1}. ${q}`;
+		});
+
+		await sendTextMessage(user.phoneNumber, questionList);
 	} else if (user.workflowState === STATES.ONBOARDING_SECURITY_QUESTION) {
-		const question = message.trim();
-		if (question.length < 5) {
+		const choice = message.trim();
+		const index = parseInt(choice) - 1;
+
+		if (isNaN(index) || index < 0 || index >= SECURITY_QUESTIONS.length) {
 			await sendTextMessage(
 				user.phoneNumber,
-				"Please provide a more descriptive security question."
+				"Please enter a valid number (1-5) to select a security question."
 			);
 			return;
 		}
 
+		const question = SECURITY_QUESTIONS[index];
 		user.workflowData.set("securityQuestion", question);
 		user.workflowState = STATES.ONBOARDING_SECURITY_ANSWER;
 		await user.save();
@@ -407,23 +421,39 @@ Please wait a moment, one of our specialists will be with you shortly to assist 
 async function sendWelcomeMenu(to, name) {
 	const bodyText = `Welcome back to LuxePass, ${name || "Guest"}! 👋
 
-Please select a service:
+Please select an option:`;
 
-4. 👤 Live Support`;
+	const buttons = [
+		{ id: "services", title: "🚀 Services" },
+		{ id: "3", title: "💳 Wallet" },
+		{ id: "4", title: "👤 Live Support" },
+	];
+
+	await sendInteractiveMessage(to, bodyText, buttons);
+}
+
+async function sendServicesMenu(to) {
+	const bodyText = `*LuxePass Services* 🚀
+
+What would you like to do today?`;
 
 	const buttons = [
 		{ id: "1", title: "🏨 Bookings" },
 		{ id: "2", title: "🚗 Concierge" },
-		{ id: "3", title: "💳 Check Balance" },
+		{ id: "menu", title: "⬅️ Back" },
 	];
 
 	await sendInteractiveMessage(to, bodyText, buttons);
 }
 
 async function handleMainMenu(user, message) {
-	const choice = message.trim();
+	const choice = message.trim().toLowerCase();
 
 	switch (choice) {
+		case "services":
+			await sendServicesMenu(user.phoneNumber);
+			break;
+
 		case "1":
 			// Reset workflow data for new booking (preserve email if needed, though it's on user model)
 			user.workflowData = new Map();
