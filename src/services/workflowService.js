@@ -19,11 +19,11 @@ const STATES = {
 
 	MAIN_MENU: "MAIN_MENU",
 	BOOKING_START: "BOOKING_START",
-	BOOKING_TYPE: "BOOKING_TYPE",
-	// Granular Booking Details
-	BOOKING_DETAILS_NAME: "BOOKING_DETAILS_NAME",
-	BOOKING_DETAILS_DATE: "BOOKING_DETAILS_DATE",
-	BOOKING_DETAILS_GUESTS: "BOOKING_DETAILS_GUESTS",
+	BOOKING_CATEGORY: "BOOKING_CATEGORY",
+	BOOKING_LISTING: "BOOKING_LISTING",
+	BOOKING_CHECKIN: "BOOKING_CHECKIN",
+	BOOKING_CHECKOUT: "BOOKING_CHECKOUT",
+	BOOKING_GUESTS: "BOOKING_GUESTS",
 	BOOKING_DETAILS_REQUESTS: "BOOKING_DETAILS_REQUESTS",
 	BOOKING_PAYMENT: "BOOKING_PAYMENT",
 
@@ -35,6 +35,12 @@ const STATES = {
 	PERSONAL_ASSISTANT: "PERSONAL_ASSISTANT",
 	REFERRAL_START: "REFERRAL_START",
 };
+
+const PROPERTY_TYPES = [
+	{ id: "APARTMENT", name: "Apartment" },
+	{ id: "HOTEL", name: "Hotel" },
+	{ id: "STUDIO", name: "Studio" },
+];
 
 // Pricing for different booking types (in NGN)
 const PRICING = {
@@ -383,10 +389,11 @@ Please wait a moment, one of our specialists will be with you shortly to assist 
 				await handleMainMenu(user, message);
 				break;
 			case STATES.BOOKING_START:
-			case STATES.BOOKING_TYPE:
-			case STATES.BOOKING_DETAILS_NAME:
-			case STATES.BOOKING_DETAILS_DATE:
-			case STATES.BOOKING_DETAILS_GUESTS:
+			case STATES.BOOKING_CATEGORY:
+			case STATES.BOOKING_LISTING:
+			case STATES.BOOKING_CHECKIN:
+			case STATES.BOOKING_CHECKOUT:
+			case STATES.BOOKING_GUESTS:
 			case STATES.BOOKING_DETAILS_REQUESTS:
 				await handleBookingFlow(user, message);
 				break;
@@ -454,25 +461,42 @@ async function handleMainMenu(user, message) {
 			await sendServicesMenu(user.phoneNumber);
 			break;
 
+		case "menu":
+			await sendWelcomeMenu(user.phoneNumber, user.name);
+			break;
+
 		case "1":
-			// Reset workflow data for new booking (preserve email if needed, though it's on user model)
+			// Reset workflow data
 			user.workflowData = new Map();
 			if (user.email) user.workflowData.set("email", user.email);
 
-			user.workflowState = STATES.BOOKING_START;
+			user.workflowState = STATES.BOOKING_CATEGORY;
 			await user.save();
 
-			const bookingButtons = [
-				{ id: "restaurant", title: "🍽️ Restaurant" },
-				{ id: "hotel", title: "🛏️ Hotel" },
-				{ id: "event", title: "🎟️ Event" },
-			];
+			if (PROPERTY_TYPES.length <= 3) {
+				const bookingButtons = PROPERTY_TYPES.map((t) => ({
+					id: t.id,
+					title: t.name,
+				}));
 
-			await sendInteractiveMessage(
-				user.phoneNumber,
-				"*Booking Services* 🏨\n\nWhat would you like to book today?",
-				bookingButtons
-			);
+				await sendInteractiveMessage(
+					user.phoneNumber,
+					"*Booking Services* 🏨\n\nWhat type of property would you like to book?",
+					bookingButtons
+				);
+			} else {
+				let bodyText =
+					"*Booking Services* 🏨\n\nWhat type of property would you like to book?\nPlease enter the number (1-5):\n";
+				PROPERTY_TYPES.forEach((t, i) => {
+					bodyText += `\n${i + 1}. ${t.name}`;
+				});
+				user.workflowData.set(
+					"currentOptions",
+					JSON.stringify(PROPERTY_TYPES.map((t) => t.id))
+				);
+				await user.save();
+				await sendTextMessage(user.phoneNumber, bodyText);
+			}
 			break;
 
 		case "2":
@@ -546,131 +570,150 @@ async function handleMainMenu(user, message) {
 }
 
 async function handleBookingFlow(user, message) {
-	if (user.workflowState === STATES.BOOKING_START) {
-		const type = message.trim().toLowerCase();
-		const validTypes = ["restaurant", "hotel", "event"];
+	const choice = message.trim();
 
-		if (!validTypes.includes(type)) {
-			await sendTextMessage(
-				user.phoneNumber,
-				"Please select a valid booking type using the buttons."
-			);
-			return;
+	if (user.workflowState === STATES.BOOKING_CATEGORY) {
+		let propertyType;
+		const currentOptionsStr = user.workflowData.get("currentOptions");
+
+		if (currentOptionsStr) {
+			const options = JSON.parse(currentOptionsStr);
+			const index = parseInt(choice) - 1;
+			if (!isNaN(index) && index >= 0 && index < options.length) {
+				propertyType = options[index];
+			}
 		}
 
-		user.workflowData.set("bookingType", type);
+		if (!propertyType) {
+			propertyType = choice.toUpperCase();
+		}
+
+		user.workflowData.set("propertyType", propertyType);
+		user.workflowData.delete("currentOptions"); // Clean up
 
 		const listings = await backendService.getListings({
-			limit: 3,
-			type: type === "hotel" ? "APARTMENT" : undefined, // Example filter
+			propertyType,
+			limit: 10, // Increased limit
 		});
 
 		if (listings && listings.length > 0) {
-			user.workflowState = STATES.BOOKING_TYPE;
+			user.workflowState = STATES.BOOKING_LISTING;
 			await user.save();
 
-			const listingButtons = listings.map((l) => ({
-				id: `list_${l.id}`,
-				title: l.name.length > 20 ? l.name.substring(0, 17) + "..." : l.name,
-			}));
+			if (listings.length <= 3) {
+				const buttons = listings.map((l) => ({
+					id: l.id,
+					title: l.name.length > 20 ? l.name.substring(0, 17) + "..." : l.name,
+				}));
 
-			let bodyText = `*LuxePass ${
-				type.charAt(0).toUpperCase() + type.slice(1)
-			}s* 🏨\n\nSelect an option to book:\n`;
-			listings.forEach((l) => {
-				bodyText += `\n• *${l.name}*: ₦${Number(l.pricePerNight).toLocaleString()}`;
-			});
+				let bodyText = `*Available ${propertyType}s* 🏨\n\nSelect a property to book:\n`;
+				listings.forEach((l) => {
+					bodyText += `\n• *${l.name}*: ₦${Number(
+						l.pricePerNight
+					).toLocaleString()}/night`;
+				});
 
-			await sendInteractiveMessage(user.phoneNumber, bodyText, listingButtons);
-			return;
-		}
-
-		user.workflowState = STATES.BOOKING_TYPE;
-		await user.save();
-
-		// Fallback to pricing tiers if no listings found
-		const tierButtons = [
-			{ id: "standard", title: "Standard" },
-			{ id: "premium", title: "Premium" },
-			{ id: "vip", title: "VIP" },
-		];
-
-		const prices = PRICING[type];
-		const bodyText = `*${
-			type.charAt(0).toUpperCase() + type.slice(1)
-		} Booking* 🏨\n\nSelect your tier:
-\n• Standard: ₦${prices.standard.toLocaleString()}
-• Premium: ₦${prices.premium.toLocaleString()}
-• VIP: ₦${prices.vip.toLocaleString()}`;
-
-		await sendInteractiveMessage(user.phoneNumber, bodyText, tierButtons);
-	} else if (user.workflowState === STATES.BOOKING_TYPE) {
-		const selection = message.trim().toLowerCase();
-		const validTiers = ["standard", "premium", "vip"];
-
-		if (selection.startsWith("list_")) {
-			const listingId = selection.replace("list_", "");
-			user.workflowData.set("listingId", listingId);
-
-			// Fetch listing to get price
-			try {
-				const listings = await backendService.getListings();
-				const listing = listings.find((l) => l.id === listingId);
-				if (listing) {
-					user.workflowData.set("amount", listing.pricePerNight.toString());
-					user.workflowData.set("bookingTarget", listing.name);
-				}
-			} catch (error) {
-				logger.error("Error fetching listing details", { error: error.message });
+				await sendInteractiveMessage(user.phoneNumber, bodyText, buttons);
+			} else {
+				let bodyText = `*Available ${propertyType}s* 🏨\n\nPlease select a property by typing the number:\n`;
+				listings.forEach((l, i) => {
+					bodyText += `\n${i + 1}. *${l.name}*: ₦${Number(
+						l.pricePerNight
+					).toLocaleString()}/night`;
+				});
+				user.workflowData.set(
+					"currentOptions",
+					JSON.stringify(listings.map((l) => l.id))
+				);
+				await user.save();
+				await sendTextMessage(user.phoneNumber, bodyText);
 			}
-
-			user.workflowState = STATES.BOOKING_DETAILS_NAME;
-			await user.save();
-
+		} else {
 			await sendTextMessage(
 				user.phoneNumber,
-				"Great choice! Let's get your details.\n\nWhat is the name for this booking?"
+				`Sorry, no ${propertyType}s are available right now. Type 'Menu' to restart.`
 			);
-			return;
+		}
+	} else if (user.workflowState === STATES.BOOKING_LISTING) {
+		let propertyId;
+		const currentOptionsStr = user.workflowData.get("currentOptions");
+
+		if (currentOptionsStr) {
+			const options = JSON.parse(currentOptionsStr);
+			const index = parseInt(choice) - 1;
+			if (!isNaN(index) && index >= 0 && index < options.length) {
+				propertyId = options[index];
+			}
 		}
 
-		if (!validTiers.includes(selection)) {
-			await sendTextMessage(
-				user.phoneNumber,
-				"Please select a valid option using the buttons."
-			);
-			return;
+		if (!propertyId) {
+			propertyId = choice;
 		}
 
-		const type = user.workflowData.get("bookingType");
-		const amount = PRICING[type][selection];
+		user.workflowData.set("propertyId", propertyId);
+		user.workflowData.delete("currentOptions"); // Clean up
 
-		user.workflowData.set("tier", selection);
-		user.workflowData.set("amount", amount.toString());
-		user.workflowState = STATES.BOOKING_DETAILS_NAME;
+		const listing = await backendService.getListingById(propertyId);
+
+		if (listing) {
+			user.workflowData.set("propertyName", listing.name);
+			user.workflowData.set("pricePerNight", listing.pricePerNight);
+			user.workflowData.set("currency", listing.currency || "NGN");
+		}
+
+		user.workflowState = STATES.BOOKING_CHECKIN;
 		await user.save();
 
 		await sendTextMessage(
 			user.phoneNumber,
-			`Great choice! The ${selection} package is ₦${amount.toLocaleString()}.\n\nWhat is the name for this booking?`
+			"Great choice! Please enter your *Check-in Date* (YYYY-MM-DD):"
 		);
-	} else if (user.workflowState === STATES.BOOKING_DETAILS_NAME) {
-		user.workflowData.set("bookingName", message.trim());
-		user.workflowState = STATES.BOOKING_DETAILS_DATE;
+	} else if (user.workflowState === STATES.BOOKING_CHECKIN) {
+		const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+		if (!dateRegex.test(choice)) {
+			await sendTextMessage(
+				user.phoneNumber,
+				"Invalid format. Please use YYYY-MM-DD (e.g., 2025-12-25):"
+			);
+			return;
+		}
+
+		user.workflowData.set("checkIn", choice);
+		user.workflowState = STATES.BOOKING_CHECKOUT;
 		await user.save();
 
 		await sendTextMessage(
 			user.phoneNumber,
-			"When would you like to make this booking? (Date & Time)"
+			"Got it. Now, please enter your *Check-out Date* (YYYY-MM-DD):"
 		);
-	} else if (user.workflowState === STATES.BOOKING_DETAILS_DATE) {
-		user.workflowData.set("bookingDate", message.trim());
-		user.workflowState = STATES.BOOKING_DETAILS_GUESTS;
+	} else if (user.workflowState === STATES.BOOKING_CHECKOUT) {
+		const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+		if (!dateRegex.test(choice)) {
+			await sendTextMessage(
+				user.phoneNumber,
+				"Invalid format. Please use YYYY-MM-DD (e.g., 2025-12-30):"
+			);
+			return;
+		}
+
+		// Basic validation check-out > check-in
+		const checkIn = new Date(user.workflowData.get("checkIn"));
+		const checkOut = new Date(choice);
+		if (checkOut <= checkIn) {
+			await sendTextMessage(
+				user.phoneNumber,
+				"Check-out date must be after check-in date. Please enter a valid date:"
+			);
+			return;
+		}
+
+		user.workflowData.set("checkOut", choice);
+		user.workflowState = STATES.BOOKING_GUESTS;
 		await user.save();
 
 		await sendTextMessage(user.phoneNumber, "How many guests are we expecting?");
-	} else if (user.workflowState === STATES.BOOKING_DETAILS_GUESTS) {
-		const guests = message.trim().replace(/\D/g, "");
+	} else if (user.workflowState === STATES.BOOKING_GUESTS) {
+		const guests = choice.replace(/\D/g, "");
 		if (!guests) {
 			await sendTextMessage(
 				user.phoneNumber,
@@ -678,40 +721,38 @@ async function handleBookingFlow(user, message) {
 			);
 			return;
 		}
-		user.workflowData.set("bookingGuests", guests);
+		user.workflowData.set("guestCount", guests);
 		user.workflowState = STATES.BOOKING_DETAILS_REQUESTS;
 		await user.save();
 
 		await sendTextMessage(
 			user.phoneNumber,
-			"Any special requests or dietary requirements? (Type 'None' if none)"
+			"Any special requests? (Type 'None' if none)"
 		);
 	} else if (user.workflowState === STATES.BOOKING_DETAILS_REQUESTS) {
-		user.workflowData.set("bookingRequests", message.trim());
+		user.workflowData.set("specialRequests", choice);
 		user.workflowState = STATES.BOOKING_PAYMENT;
 		await user.save();
 
-		// Proceed to Payment Generation
 		await processBookingPayment(user);
-	} else if (user.workflowState === STATES.BOOKING_PAYMENT) {
-		// Just in case they message here, remind them to pay or use menu
-		await sendTextMessage(
-			user.phoneNumber,
-			"Please complete your payment using the link provided above. Once confirmed, we will process your booking immediately.\n\nType 'Menu' to start over."
-		);
 	}
 }
 
 async function processBookingPayment(user) {
-	const amount = Number(user.workflowData.get("amount"));
-	const bookingTarget =
-		user.workflowData.get("bookingTarget") ||
-		user.workflowData.get("bookingType");
+	const propertyName = user.workflowData.get("propertyName");
+	const checkIn = user.workflowData.get("checkIn");
+	const checkOut = user.workflowData.get("checkOut");
+	const guestCount = user.workflowData.get("guestCount");
+	const specialRequests = user.workflowData.get("specialRequests");
+	const pricePerNight = Number(user.workflowData.get("pricePerNight"));
 
-	const bookingName = user.workflowData.get("bookingName");
-	const bookingDate = user.workflowData.get("bookingDate");
-	const bookingGuests = user.workflowData.get("bookingGuests");
-	const bookingRequests = user.workflowData.get("bookingRequests");
+	// Calculate nights
+	const start = new Date(checkIn);
+	const end = new Date(checkOut);
+	const nights = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
+	const totalAmount = nights * pricePerNight;
+
+	user.workflowData.set("totalAmount", totalAmount.toString());
 
 	// Fetch wallet info
 	let walletInfo = "Wallet details unavailable.";
@@ -730,60 +771,69 @@ async function processBookingPayment(user) {
 
 	await sendTextMessage(
 		user.phoneNumber,
-		`*Booking Summary* 🏨\n\nTarget: ${bookingTarget}\nAmount: ₦${amount.toLocaleString()}\n\n*Details:*\nName: ${bookingName}\nDate: ${bookingDate}\nGuests: ${bookingGuests}\nRequests: ${bookingRequests}\n\n${walletInfo}\n\n*To complete this payment, please type your Security Answer:*`
+		`*Booking Summary* 🏨\n\nProperty: ${propertyName}\nDates: ${checkIn} to ${checkOut} (${nights} nights)\nGuests: ${guestCount}\nAmount: ₦${totalAmount.toLocaleString()}\nRequests: ${specialRequests}\n\n${walletInfo}\n\n*To confirm this booking, please type your Security Answer:*`
 	);
 }
 
 // In handleWorkflow, we need to handle the security answer for booking payment if in BOOKING_PAYMENT state
 async function handleBookingPaymentVerify(user, message) {
 	const securityAnswer = message.trim();
-	const amount = Number(user.workflowData.get("amount"));
-	const bookingTarget =
-		user.workflowData.get("bookingTarget") ||
-		user.workflowData.get("bookingType");
+	const propertyId = user.workflowData.get("propertyId");
+	const checkIn = user.workflowData.get("checkIn");
+	const checkOut = user.workflowData.get("checkOut");
+	const guestCount = Number(user.workflowData.get("guestCount"));
+	const specialRequests = user.workflowData.get("specialRequests");
+	const totalAmount = Number(user.workflowData.get("totalAmount"));
 
 	try {
-		const result = await backendService.initiateTransfer({
+		// 1. First, create the booking on the main backend
+		const booking = await backendService.createBooking({
 			userIdentifier: user.phoneNumber,
 			securityAnswer: securityAnswer,
-			amount: amount,
-			narration: `Booking: ${bookingTarget}`,
+			type: "SHORTLET",
+			propertyId,
+			checkIn,
+			checkOut,
+			guestCount,
+			specialRequests,
 		});
 
-		if (result) {
-			// Create booking record on core backend or local
-			const reference = result.reference;
-			const userDoc = await User.findOne({ phoneNumber: user.phoneNumber });
+		if (booking) {
+			// 2. Then, initiate the wallet transfer (payment)
+			// Note: In some systems, the booking creation might handle payment,
+			// but based on docs we seem to create booking and then verify.
+			// However, the user said "Check every information to create a booking on the main backend and use that for the whatsapp process."
+			// So we initiate the transfer as payment confirm.
 
-			await Booking.create({
-				bookingId: reference,
-				user: userDoc._id,
-				type: user.workflowData.get("bookingType"),
-				amount: amount,
-				status: "confirmed",
-				paymentReference: reference,
-				details: {
-					name: user.workflowData.get("bookingName"),
-					date: new Date(), // placeholder
-					guests: Number(user.workflowData.get("bookingGuests")),
-					requests: user.workflowData.get("bookingRequests"),
-				},
+			const result = await backendService.initiateTransfer({
+				userIdentifier: user.phoneNumber,
+				securityAnswer: securityAnswer,
+				amount: totalAmount,
+				narration: `Booking: ${user.workflowData.get("propertyName")}`,
 			});
 
-			await sendTextMessage(
-				user.phoneNumber,
-				`*Booking Confirmed!* 🎉\n\nYour payment of ₦${amount.toLocaleString()} for ${bookingTarget} was successful.\n\nType 'Menu' to return to the main menu.`
-			);
-			user.workflowState = STATES.MAIN_MENU;
-			await user.save();
+			if (result) {
+				await sendTextMessage(
+					user.phoneNumber,
+					`*Booking Confirmed!* 🎉\n\nYour booking for *${user.workflowData.get(
+						"propertyName"
+					)}* has been confirmed.\n\nBooking ID: ${
+						booking.id
+					}\nAmount: ₦${totalAmount.toLocaleString()}\n\nType 'Menu' to return to the main menu.`
+				);
+				user.workflowState = STATES.MAIN_MENU;
+				await user.save();
+			} else {
+				throw new Error("Payment failed after booking creation");
+			}
 		} else {
-			throw new Error("Payment failed");
+			throw new Error("Failed to create booking on core backend");
 		}
 	} catch (error) {
-		logger.error("Error in booking payment", { error: error.message });
+		logger.error("Error in booking payment flow", { error: error.message });
 		await sendTextMessage(
 			user.phoneNumber,
-			"Sorry, we couldn't process your payment. Please ensure you have enough balance and provided the correct security answer.\n\nType 'Menu' to restart."
+			"Sorry, we couldn't process your booking. Please ensure you have enough balance and provided the correct security answer.\n\nType 'Menu' to restart."
 		);
 	}
 }

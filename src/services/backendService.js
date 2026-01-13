@@ -102,6 +102,47 @@ export async function getListings(params = {}) {
 }
 
 /**
+ * Get listing by ID
+ * @param {string} id
+ * @returns {Promise<Object|null>}
+ */
+export async function getListingById(id) {
+	try {
+		const response = await apiClient.get(`/listings/${id}`);
+		if (response.data.success) {
+			return response.data.data;
+		}
+		return null;
+	} catch (error) {
+		logger.error("Error fetching listing details from core backend", {
+			id,
+			error: error.message,
+		});
+		return null;
+	}
+}
+
+/**
+ * Create a booking in core backend
+ * @param {Object} bookingData
+ * @returns {Promise<Object|null>}
+ */
+export async function createBooking(bookingData) {
+	try {
+		const response = await apiClient.post("/bookings", bookingData);
+		if (response.data.success) {
+			return response.data.data;
+		}
+		return null;
+	} catch (error) {
+		logger.error("Error creating booking in core backend", {
+			error: error.response?.data?.error?.message || error.message,
+		});
+		return null;
+	}
+}
+
+/**
  * Get wallet for a user by identifier
  * @param {string} identifier - userId or uniqueId
  * @returns {Promise<Object|null>}
@@ -164,6 +205,8 @@ export default {
 	checkUserExists,
 	registerUser,
 	getListings,
+	getListingById,
+	createBooking,
 	getWallet,
 	setSecurityQuestion,
 	initiateTransfer,
