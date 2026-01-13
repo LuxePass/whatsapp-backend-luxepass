@@ -4,6 +4,7 @@ import {
 	sendTextMessage,
 	sendTemplateMessage,
 	sendInteractiveMessage,
+	sendListMessage,
 } from "./whatsappService.js";
 import logger from "../config/logger.js";
 import axios from "axios";
@@ -38,8 +39,12 @@ const STATES = {
 
 const PROPERTY_TYPES = [
 	{ id: "APARTMENT", name: "Apartment" },
-	{ id: "HOTEL", name: "Hotel" },
-	{ id: "STUDIO", name: "Studio" },
+	{ id: "HOUSE", name: "House" },
+	{ id: "VILLA", name: "Villa" },
+	{ id: "TOWNHOUSE", name: "Townhouse" },
+	{ id: "CONDO", name: "Condo" },
+	{ id: "OFFICE", name: "Office" },
+	{ id: "OTHER", name: "Other" },
 ];
 
 // Pricing for different booking types (in NGN)
@@ -378,43 +383,7 @@ Please wait a moment, one of our specialists will be with you shortly to assist 
 		}
 
 		// Process based on current state
-		switch (user.workflowState) {
-			case STATES.ONBOARDING_NAME:
-			case STATES.ONBOARDING_EMAIL:
-			case STATES.ONBOARDING_SECURITY_QUESTION:
-			case STATES.ONBOARDING_SECURITY_ANSWER:
-				await handleOnboarding(user, message);
-				break;
-			case STATES.MAIN_MENU:
-				await handleMainMenu(user, message);
-				break;
-			case STATES.BOOKING_START:
-			case STATES.BOOKING_CATEGORY:
-			case STATES.BOOKING_LISTING:
-			case STATES.BOOKING_CHECKIN:
-			case STATES.BOOKING_CHECKOUT:
-			case STATES.BOOKING_GUESTS:
-			case STATES.BOOKING_DETAILS_REQUESTS:
-				await handleBookingFlow(user, message);
-				break;
-			case STATES.BOOKING_PAYMENT:
-				await handleBookingPaymentVerify(user, message);
-				break;
-			case STATES.CONCIERGE_START:
-			case STATES.CONCIERGE_DETAILS_AMOUNT:
-			case STATES.CONCIERGE_DETAILS_NARRATION:
-			case STATES.CONCIERGE_VERIFY:
-				await handleConciergeFlow(user, message);
-				break;
-			case STATES.REFERRAL_START:
-				await handleReferralFlow(user, message);
-				break;
-			default:
-				// If unknown state, reset to menu
-				user.workflowState = STATES.MAIN_MENU;
-				await user.save();
-				await sendWelcomeMenu(phoneNumber, user.name);
-		}
+		await processWorkflowState(user, message);
 	} catch (error) {
 		logger.error("Error in workflow handler", { error: error.message });
 		const targetNumber = from.replace(/\D/g, "");
@@ -422,6 +391,51 @@ Please wait a moment, one of our specialists will be with you shortly to assist 
 			targetNumber,
 			"Sorry, I encountered an error. Please type 'Menu' to restart."
 		);
+	}
+}
+
+/**
+ * Routes message processing based on current workflow state
+ */
+async function processWorkflowState(user, message) {
+	const choice = message?.trim ? message.trim() : message;
+
+	switch (user.workflowState) {
+		case STATES.ONBOARDING_NAME:
+		case STATES.ONBOARDING_EMAIL:
+		case STATES.ONBOARDING_SECURITY_QUESTION:
+		case STATES.ONBOARDING_SECURITY_ANSWER:
+			await handleOnboarding(user, choice);
+			break;
+		case STATES.MAIN_MENU:
+			await handleMainMenu(user, choice);
+			break;
+		case STATES.BOOKING_START:
+		case STATES.BOOKING_CATEGORY:
+		case STATES.BOOKING_LISTING:
+		case STATES.BOOKING_CHECKIN:
+		case STATES.BOOKING_CHECKOUT:
+		case STATES.BOOKING_GUESTS:
+		case STATES.BOOKING_DETAILS_REQUESTS:
+			await handleBookingFlow(user, choice);
+			break;
+		case STATES.BOOKING_PAYMENT:
+			await handleBookingPaymentVerify(user, choice);
+			break;
+		case STATES.CONCIERGE_START:
+		case STATES.CONCIERGE_DETAILS_AMOUNT:
+		case STATES.CONCIERGE_DETAILS_NARRATION:
+		case STATES.CONCIERGE_VERIFY:
+			await handleConciergeFlow(user, choice);
+			break;
+		case STATES.REFERRAL_START:
+			await handleReferralFlow(user, choice);
+			break;
+		default:
+			// If unknown state, reset to menu
+			user.workflowState = STATES.MAIN_MENU;
+			await user.save();
+			await sendWelcomeMenu(user.phoneNumber, user.name);
 	}
 }
 
@@ -473,30 +487,19 @@ async function handleMainMenu(user, message) {
 			user.workflowState = STATES.BOOKING_CATEGORY;
 			await user.save();
 
-			if (PROPERTY_TYPES.length <= 3) {
-				const bookingButtons = PROPERTY_TYPES.map((t) => ({
-					id: t.id,
-					title: t.name,
-				}));
+			const categoryRows = PROPERTY_TYPES.map((t) => ({
+				id: t.id,
+				title: t.name,
+				description: `View available ${t.name.toLowerCase()}s`,
+			}));
 
-				await sendInteractiveMessage(
-					user.phoneNumber,
-					"*Booking Services* 🏨\n\nWhat type of property would you like to book?",
-					bookingButtons
-				);
-			} else {
-				let bodyText =
-					"*Booking Services* 🏨\n\nWhat type of property would you like to book?\nPlease enter the number (1-5):\n";
-				PROPERTY_TYPES.forEach((t, i) => {
-					bodyText += `\n${i + 1}. ${t.name}`;
-				});
-				user.workflowData.set(
-					"currentOptions",
-					JSON.stringify(PROPERTY_TYPES.map((t) => t.id))
-				);
-				await user.save();
-				await sendTextMessage(user.phoneNumber, bodyText);
-			}
+			await sendListMessage(
+				user.phoneNumber,
+				"Select a property type to begin your booking:",
+				"Select Type",
+				[{ title: "Property Types", rows: categoryRows }],
+				"Booking Services 🏨"
+			);
 			break;
 
 		case "2":
@@ -600,34 +603,21 @@ async function handleBookingFlow(user, message) {
 			user.workflowState = STATES.BOOKING_LISTING;
 			await user.save();
 
-			if (listings.length <= 3) {
-				const buttons = listings.map((l) => ({
-					id: l.id,
-					title: l.name.length > 20 ? l.name.substring(0, 17) + "..." : l.name,
-				}));
+			const listingRows = listings.map((l) => ({
+				id: l.id,
+				title: l.name,
+				description: `₦${Number(l.pricePerNight).toLocaleString()}/night - ${
+					l.city
+				}`,
+			}));
 
-				let bodyText = `*Available ${propertyType}s* 🏨\n\nSelect a property to book:\n`;
-				listings.forEach((l) => {
-					bodyText += `\n• *${l.name}*: ₦${Number(
-						l.pricePerNight
-					).toLocaleString()}/night`;
-				});
-
-				await sendInteractiveMessage(user.phoneNumber, bodyText, buttons);
-			} else {
-				let bodyText = `*Available ${propertyType}s* 🏨\n\nPlease select a property by typing the number:\n`;
-				listings.forEach((l, i) => {
-					bodyText += `\n${i + 1}. *${l.name}*: ₦${Number(
-						l.pricePerNight
-					).toLocaleString()}/night`;
-				});
-				user.workflowData.set(
-					"currentOptions",
-					JSON.stringify(listings.map((l) => l.id))
-				);
-				await user.save();
-				await sendTextMessage(user.phoneNumber, bodyText);
-			}
+			await sendListMessage(
+				user.phoneNumber,
+				`We found ${listings.length} ${propertyType.toLowerCase()}(s) for you.`,
+				"Select Property",
+				[{ title: "Available Listings", rows: listingRows }],
+				`Available ${propertyType}s 🏨`
+			);
 		} else {
 			await sendTextMessage(
 				user.phoneNumber,

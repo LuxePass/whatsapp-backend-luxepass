@@ -461,3 +461,102 @@ export async function markMessageAsRead(messageId) {
 		};
 	}
 }
+
+/**
+ * Send a list message (WhatsApp modal)
+ * @param {string} to - Recipient phone number
+ * @param {string} bodyText - Message body text
+ * @param {string} buttonText - Text for the button that opens the list (max 20 chars)
+ * @param {Array} sections - Array of section objects { title, rows: [{ id, title, description }] }
+ * @param {string} headerText - Optional header text
+ * @param {string} footerText - Optional footer text
+ * @returns {Promise<Object>} API response
+ */
+export async function sendListMessage(
+	to,
+	bodyText,
+	buttonText,
+	sections,
+	headerText = null,
+	footerText = null
+) {
+	try {
+		const normalizedTo = to.replace(/\D/g, "");
+
+		const payload = {
+			messaging_product: "whatsapp",
+			recipient_type: "individual",
+			to: normalizedTo,
+			type: "interactive",
+			interactive: {
+				type: "list",
+				header: headerText ? { type: "text", text: headerText } : undefined,
+				body: { text: bodyText },
+				footer: footerText ? { text: footerText } : undefined,
+				action: {
+					button: buttonText.substring(0, 20),
+					sections: sections.map((section) => ({
+						title: section.title?.substring(0, 24),
+						rows: section.rows.map((row) => ({
+							id: row.id,
+							title: row.title.substring(0, 24),
+							description: row.description?.substring(0, 72),
+						})),
+					})),
+				},
+			},
+		};
+
+		logger.info("Sending list message", {
+			to: normalizedTo,
+			sectionCount: sections.length,
+		});
+
+		const response = await apiClient.post(
+			`/${config.meta.phoneNumberId}/messages`,
+			payload
+		);
+
+		logger.info("List message sent successfully", {
+			messageId: response.data.messages?.[0]?.id,
+			to: normalizedTo,
+		});
+
+		// Save message to database
+		try {
+			const messageId = response.data.messages?.[0]?.id;
+			await addMessage({
+				messageId,
+				from: "sys",
+				to: normalizedTo,
+				content: bodyText,
+				type: "list",
+				status: "sent",
+				timestamp: new Date(),
+			});
+		} catch (dbError) {
+			logger.error("Failed to save sent list message to DB", {
+				error: dbError.message,
+			});
+		}
+
+		return {
+			success: true,
+			messageId: response.data.messages?.[0]?.id,
+			data: response.data,
+		};
+	} catch (error) {
+		logger.error("Error sending list message", {
+			to,
+			error: error.response?.data || error.message,
+		});
+
+		return {
+			success: false,
+			error: error.response?.data?.error || {
+				message: error.message,
+				code: error.response?.status,
+			},
+		};
+	}
+}
