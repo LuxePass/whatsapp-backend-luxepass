@@ -576,20 +576,7 @@ async function handleBookingFlow(user, message) {
 	const choice = message.trim();
 
 	if (user.workflowState === STATES.BOOKING_CATEGORY) {
-		let propertyType;
-		const currentOptionsStr = user.workflowData.get("currentOptions");
-
-		if (currentOptionsStr) {
-			const options = JSON.parse(currentOptionsStr);
-			const index = parseInt(choice) - 1;
-			if (!isNaN(index) && index >= 0 && index < options.length) {
-				propertyType = options[index];
-			}
-		}
-
-		if (!propertyType) {
-			propertyType = choice.toUpperCase();
-		}
+		const propertyType = choice.toUpperCase();
 
 		user.workflowData.set("propertyType", propertyType);
 		user.workflowData.delete("currentOptions"); // Clean up
@@ -603,13 +590,16 @@ async function handleBookingFlow(user, message) {
 			user.workflowState = STATES.BOOKING_LISTING;
 			await user.save();
 
-			const listingRows = listings.map((l) => ({
-				id: l.id,
-				title: l.name,
-				description: `₦${Number(l.pricePerNight).toLocaleString()}/night - ${
-					l.city
-				}`,
-			}));
+			const listingRows = listings.map((l) => {
+				const currencySymbol = l.currency === "USD" ? "$" : "₦";
+				return {
+					id: l.id,
+					title: l.name.substring(0, 24),
+					description: `${currencySymbol}${Number(
+						l.pricePerNight
+					).toLocaleString()}/night - ${l.city}`,
+				};
+			});
 
 			await sendListMessage(
 				user.phoneNumber,
@@ -625,20 +615,7 @@ async function handleBookingFlow(user, message) {
 			);
 		}
 	} else if (user.workflowState === STATES.BOOKING_LISTING) {
-		let propertyId;
-		const currentOptionsStr = user.workflowData.get("currentOptions");
-
-		if (currentOptionsStr) {
-			const options = JSON.parse(currentOptionsStr);
-			const index = parseInt(choice) - 1;
-			if (!isNaN(index) && index >= 0 && index < options.length) {
-				propertyId = options[index];
-			}
-		}
-
-		if (!propertyId) {
-			propertyId = choice;
-		}
+		const propertyId = choice;
 
 		user.workflowData.set("propertyId", propertyId);
 		user.workflowData.delete("currentOptions"); // Clean up

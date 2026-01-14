@@ -88,9 +88,22 @@ export async function registerUser(userData) {
  */
 export async function getListings(params = {}) {
 	try {
-		const response = await apiClient.get("/listings", { params });
+		// Ensure only active properties are fetched for customers
+		const queryParams = {
+			...params,
+			isActive: true,
+		};
+
+		const queryString = Object.keys(queryParams)
+			.map((key) => `${key}=${encodeURIComponent(queryParams[key])}`)
+			.join("&");
+
+		const response = await apiClient.get(`/listings?${queryString}`);
+
 		if (response.data.success) {
-			return response.data.data.properties;
+			// The backend response is StandardResponse<PropertyListResponseDto>
+			// PropertyListResponseDto has a 'data' property which is the array
+			return response.data.data.data || [];
 		}
 		return [];
 	} catch (error) {
