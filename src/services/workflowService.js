@@ -35,6 +35,7 @@ const STATES = {
 
 	PERSONAL_ASSISTANT: "PERSONAL_ASSISTANT",
 	REFERRAL_START: "REFERRAL_START",
+	WALLET_MENU: "WALLET_MENU",
 };
 
 const PROPERTY_TYPES = [
@@ -431,6 +432,9 @@ async function processWorkflowState(user, message) {
 		case STATES.REFERRAL_START:
 			await handleReferralFlow(user, choice);
 			break;
+		case STATES.WALLET_MENU:
+			await handleWalletMenu(user, choice);
+			break;
 		default:
 			// If unknown state, reset to menu
 			user.workflowState = STATES.MAIN_MENU;
@@ -524,17 +528,24 @@ async function handleMainMenu(user, message) {
 			break;
 
 		case "3":
-			// Check Balance
+			// Wallet Option
 			try {
 				const wallet = await backendService.getWallet(user.phoneNumber);
 				if (wallet) {
 					let balanceText = `*Your Wallet* 💳\n\nBalance: ₦${Number(
 						wallet.balance
 					).toLocaleString()}`;
-					if (wallet.virtualAccount) {
-						balanceText += `\n\n*Funding Details:*\nBank: ${wallet.virtualAccount.bankName}\nAccount Name: ${wallet.virtualAccount.accountName}\nAccount Number: ${wallet.virtualAccount.accountNumber}`;
-					}
-					await sendTextMessage(user.phoneNumber, balanceText);
+
+					const walletButtons = [
+						{ id: "wallet_balance", title: "💰 Balance" },
+						{ id: "wallet_deposit", title: "📥 Deposit" },
+						{ id: "menu", title: "⬅️ Back" },
+					];
+
+					user.workflowState = STATES.WALLET_MENU;
+					await user.save();
+
+					await sendInteractiveMessage(user.phoneNumber, balanceText, walletButtons);
 				} else {
 					await sendTextMessage(
 						user.phoneNumber,
@@ -542,13 +553,12 @@ async function handleMainMenu(user, message) {
 					);
 				}
 			} catch (error) {
-				logger.error("Error in Check Balance", { error: error.message });
+				logger.error("Error in Wallet Menu", { error: error.message });
 				await sendTextMessage(
 					user.phoneNumber,
 					"An error occurred while fetching your balance."
 				);
 			}
-			await sendWelcomeMenu(user.phoneNumber, user.name);
 			break;
 
 		case "4":
@@ -766,6 +776,27 @@ async function handleBookingPaymentVerify(user, message) {
 		});
 
 		if (booking) {
+			// Check if balance is sufficient
+			const wallet = await backendService.getWallet(user.phoneNumber);
+			if (wallet && Number(wallet.balance) < totalAmount) {
+				let depositInstructions = `\n\n*How to Deposit:*\nTransfer ₦${(
+					totalAmount - Number(wallet.balance)
+				).toLocaleString()} or more to:\n`;
+				if (wallet.virtualAccount) {
+					depositInstructions += `Bank: ${wallet.virtualAccount.bankName}\nAccount Number: ${wallet.virtualAccount.accountNumber}\nAccount Name: ${wallet.virtualAccount.accountName}`;
+				} else {
+					depositInstructions += "Please contact support for deposit instructions.";
+				}
+
+				await sendTextMessage(
+					user.phoneNumber,
+					`⚠️ *Insufficient Balance*\n\nYour current balance is ₦${Number(
+						wallet.balance
+					).toLocaleString()}, but this booking requires ₦${totalAmount.toLocaleString()}.${depositInstructions}\n\nOnce deposited, please type your *Security Answer* again to confirm.`
+				);
+				return;
+			}
+
 			// 2. Then, initiate the wallet transfer (payment)
 			// Note: In some systems, the booking creation might handle payment,
 			// but based on docs we seem to create booking and then verify.
@@ -970,4 +1001,61 @@ async function handleReferralFlow(user, message) {
 	user.workflowState = STATES.MAIN_MENU;
 	await user.save();
 	await sendWelcomeMenu(user.phoneNumber, user.name);
+}
+
+async function handleWalletMenu(user, message) {
+	const choice = message.trim().toLowerCase();
+
+	if (choice === "menu" || choice === "back") {
+		user.workflowState = STATES.MAIN_MENU;
+		await user.save();
+		await sendWelcomeMenu(user.phoneNumber, user.name);
+		return;
+	}
+
+	try {
+		const wallet = await backendService.getWallet(user.phoneNumber);
+		if (!wallet) {
+			await sendTextMessage(
+				user.phoneNumber,
+				"Sorry, your wallet details are unavailable."
+			);
+			user.workflowState = STATES.MAIN_MENU;
+			await user.save();
+			await sendWelcomeMenu(user.phoneNumber, user.name);
+			return;
+		}
+
+		if (choice === "wallet_balance" || choice === "1") {
+			let balanceText = `*Your Balance* 💰\n\nAvailable: ₦${Number(
+				wallet.balance
+			).toLocaleString()}`;
+			await sendTextMessage(user.phoneNumber, balanceText);
+		} else if (choice === "wallet_deposit" || choice === "2") {
+			let depositText = `*Deposit Instructions* 📥\n\nPlease fund your wallet by transferring to your virtual account:`;
+			if (wallet.virtualAccount) {
+				depositText += `\n\nBank: ${wallet.virtualAccount.bankName}\nAccount Name: ${wallet.virtualAccount.accountName}\nAccount Number: ${wallet.virtualAccount.accountNumber}`;
+			} else {
+				depositText = "Please contact support for funding instructions.";
+			}
+			await sendTextMessage(user.phoneNumber, depositText);
+		}
+
+		// Keep them in wallet menu for more actions or return them to main
+		const walletButtons = [
+			{ id: "wallet_balance", title: "💰 Balance" },
+			{ id: "wallet_deposit", title: "📥 Deposit" },
+			{ id: "menu", title: "⬅️ Back" },
+		];
+		await sendInteractiveMessage(
+			user.phoneNumber,
+			"What else would you like to do?",
+			walletButtons
+		);
+	} catch (error) {
+		logger.error("Error in Wallet Menu Action", { error: error.message });
+		user.workflowState = STATES.MAIN_MENU;
+		await user.save();
+		await sendWelcomeMenu(user.phoneNumber, user.name);
+	}
 }
