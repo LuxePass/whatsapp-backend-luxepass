@@ -32,6 +32,14 @@ const userSchema = new mongoose.Schema(
 			type: Date,
 			default: Date.now,
 		},
+		coreUserId: {
+			type: String,
+			index: true,
+		},
+		assignedPaId: {
+			type: String,
+			index: true,
+		},
 	},
 	{
 		timestamps: true,

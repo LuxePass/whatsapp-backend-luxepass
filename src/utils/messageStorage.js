@@ -107,12 +107,17 @@ export async function updateMessageStatus(messageId, status) {
 }
 
 /**
- * Get all conversations
- * @returns {Promise<Array>} Array of conversation objects
+ * Get all conversations, optionally filtered by PA
+ * @param {string} paId - Optional PA ID to filter by
+ * @returns {Promise<Array>}
  */
-export async function getAllConversations() {
+export async function getAllConversations(paId = null) {
 	try {
-		return await Conversation.find().sort({ lastMessageTime: -1 });
+		const query = {};
+		if (paId) {
+			query.assignedPaId = paId;
+		}
+		return await Conversation.find(query).sort({ lastMessageTime: -1 });
 	} catch (error) {
 		logger.error("Error getting all conversations", { error: error.message });
 		return [];

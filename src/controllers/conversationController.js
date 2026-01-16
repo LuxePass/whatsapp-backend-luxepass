@@ -10,7 +10,8 @@ import logger from "../config/logger.js";
  */
 export async function getConversations(req, res) {
 	try {
-		const conversations = await getAllConversations();
+		const { paId } = req.query;
+		const conversations = await getAllConversations(paId);
 
 		// Format for frontend
 		const formatted = conversations

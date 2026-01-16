@@ -1,5 +1,6 @@
 import User from "../models/User.js";
 import Booking from "../models/Booking.js";
+import Conversation from "../models/Conversation.js";
 import {
 	sendTextMessage,
 	sendTemplateMessage,
@@ -174,6 +175,8 @@ async function handleOnboarding(user, message) {
 				email: user.email,
 			});
 			if (coreUser) {
+				user.coreUserId = coreUser.id;
+				await user.save();
 				logger.info("User registered on core backend", {
 					phone: user.phoneNumber,
 					id: coreUser.id,
@@ -274,6 +277,64 @@ async function handleOnboarding(user, message) {
 	}
 }
 
+async function autoAssignPA(user) {
+	try {
+		const pas = await backendService.getAllPAs();
+		if (!pas || pas.length === 0) {
+			logger.warn("No PAs available for assignment");
+			return null;
+		}
+
+		// Get current assignments from local conversations to balance load
+		const conversations = await Conversation.find({
+			assignedPaId: { $ne: null },
+		});
+		const paCounts = {};
+		pas.forEach((pa) => (paCounts[pa.id] = 0));
+		conversations.forEach((c) => {
+			if (paCounts[c.assignedPaId] !== undefined) {
+				paCounts[c.assignedPaId]++;
+			}
+		});
+
+		// Sort PAs by assignment count (least busy first)
+		const sortedPAs = [...pas].sort(
+			(a, b) => (paCounts[a.id] || 0) - (paCounts[b.id] || 0)
+		);
+		const chosenPA = sortedPAs[0];
+
+		// Assign in core backend if we have a coreUserId
+		if (user.coreUserId) {
+			await backendService.assignUserToPA(chosenPA.id, user.coreUserId);
+		}
+
+		// Update local MongoDB User and Conversation
+		user.assignedPaId = chosenPA.id;
+		await user.save();
+
+		// Find or create conversation to assign it
+		// In the message receiver, it usually creates/updates conversation too
+		const conversation = await Conversation.findOne({
+			phoneNumber: user.phoneNumber,
+		});
+		if (conversation) {
+			conversation.assignedPaId = chosenPA.id;
+			await conversation.save();
+		}
+
+		logger.info("Auto-assigned user to PA", {
+			phoneNumber: user.phoneNumber,
+			paId: chosenPA.id,
+			paName: chosenPA.name,
+		});
+
+		return chosenPA;
+	} catch (error) {
+		logger.error("Error in autoAssignPA", { error: error.message });
+		return null;
+	}
+}
+
 /**
  * Handle incoming message for workflow processing
  */
@@ -298,6 +359,7 @@ export async function handleWorkflow(from, message, name) {
 					phoneNumber,
 					name: coreUser.name || name || "",
 					email: coreUser.email || "",
+					coreUserId: coreUser.id,
 					workflowState: STATES.MAIN_MENU,
 				});
 				logger.info("Existing core backend user found and synced locally", {
@@ -321,6 +383,9 @@ export async function handleWorkflow(from, message, name) {
 					workflowState: STATES.PERSONAL_ASSISTANT,
 					isLiveChatActive: true,
 				});
+
+				// Auto-assign PA
+				await autoAssignPA(user);
 
 				await sendTextMessage(
 					phoneNumber,
@@ -549,6 +614,9 @@ async function handleMainMenu(user, message) {
 			user.isLiveChatActive = true;
 			user.workflowState = STATES.PERSONAL_ASSISTANT;
 			await user.save();
+
+			// Auto-assign PA
+			await autoAssignPA(user);
 			await sendTextMessage(
 				user.phoneNumber,
 				`*Personal Assistant* 👤

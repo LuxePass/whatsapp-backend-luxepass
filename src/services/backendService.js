@@ -214,6 +214,48 @@ export async function initiateTransfer(data) {
 	}
 }
 
+/**
+ * Get all Personal Assistants from core backend
+ * @returns {Promise<Array>}
+ */
+export async function getAllPAs() {
+	try {
+		const response = await apiClient.get("/pas");
+		if (response.data.success) {
+			// Based on PasController.findAll, returns StandardResponse<PAListResponseDto>
+			return response.data.data.data || [];
+		}
+		return [];
+	} catch (error) {
+		logger.error("Error fetching PAs from core backend", {
+			error: error.message,
+		});
+		return [];
+	}
+}
+
+/**
+ * Assign a user to a Personal Assistant in core backend
+ * @param {string} paId - The PA's ID
+ * @param {string} userId - The client's ID (UUID)
+ * @returns {Promise<boolean>}
+ */
+export async function assignUserToPA(paId, userId) {
+	try {
+		const response = await apiClient.post(`/pas/${paId}/assign`, {
+			userId,
+		});
+		return response.data.success;
+	} catch (error) {
+		logger.error("Error assigning user to PA in core backend", {
+			paId,
+			userId,
+			error: error.response?.data?.error?.message || error.message,
+		});
+		return false;
+	}
+}
+
 export default {
 	checkUserExists,
 	registerUser,
@@ -224,4 +266,6 @@ export default {
 	setSecurityQuestion,
 	initiateTransfer,
 	normalizePhone,
+	getAllPAs,
+	assignUserToPA,
 };
