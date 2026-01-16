@@ -528,37 +528,21 @@ async function handleMainMenu(user, message) {
 			break;
 
 		case "3":
-			// Wallet Option
-			try {
-				const wallet = await backendService.getWallet(user.phoneNumber);
-				if (wallet) {
-					let balanceText = `*Your Wallet* 💳\n\nBalance: ₦${Number(
-						wallet.balance
-					).toLocaleString()}`;
+			// Wallet sub-menu
+			const walletButtons = [
+				{ id: "wallet_balance", title: "💰 Balance" },
+				{ id: "wallet_deposit", title: "📥 Deposit" },
+				{ id: "menu", title: "⬅️ Back" },
+			];
 
-					const walletButtons = [
-						{ id: "wallet_balance", title: "💰 Balance" },
-						{ id: "wallet_deposit", title: "📥 Deposit" },
-						{ id: "menu", title: "⬅️ Back" },
-					];
+			user.workflowState = STATES.WALLET_MENU;
+			await user.save();
 
-					user.workflowState = STATES.WALLET_MENU;
-					await user.save();
-
-					await sendInteractiveMessage(user.phoneNumber, balanceText, walletButtons);
-				} else {
-					await sendTextMessage(
-						user.phoneNumber,
-						"Sorry, we couldn't fetch your wallet details at the moment."
-					);
-				}
-			} catch (error) {
-				logger.error("Error in Wallet Menu", { error: error.message });
-				await sendTextMessage(
-					user.phoneNumber,
-					"An error occurred while fetching your balance."
-				);
-			}
+			await sendInteractiveMessage(
+				user.phoneNumber,
+				"*LuxePass Wallet* 💳\n\nHow can we help you today?",
+				walletButtons
+			);
 			break;
 
 		case "4":
@@ -1006,7 +990,7 @@ async function handleReferralFlow(user, message) {
 async function handleWalletMenu(user, message) {
 	const choice = message.trim().toLowerCase();
 
-	if (choice === "menu" || choice === "back") {
+	if (choice === "menu" || choice === "back" || choice === "main menu") {
 		user.workflowState = STATES.MAIN_MENU;
 		await user.save();
 		await sendWelcomeMenu(user.phoneNumber, user.name);
@@ -1014,11 +998,13 @@ async function handleWalletMenu(user, message) {
 	}
 
 	try {
+		// Fetch fresh wallet details from main backend for both balance and deposit
 		const wallet = await backendService.getWallet(user.phoneNumber);
+
 		if (!wallet) {
 			await sendTextMessage(
 				user.phoneNumber,
-				"Sorry, your wallet details are unavailable."
+				"Sorry, your wallet details are currently unavailable. Please try again later."
 			);
 			user.workflowState = STATES.MAIN_MENU;
 			await user.save();
@@ -1026,22 +1012,39 @@ async function handleWalletMenu(user, message) {
 			return;
 		}
 
-		if (choice === "wallet_balance" || choice === "1") {
-			let balanceText = `*Your Balance* 💰\n\nAvailable: ₦${Number(
+		if (
+			choice === "wallet_balance" ||
+			choice === "1" ||
+			choice.includes("balance")
+		) {
+			// Check Balance linked to main backend
+			const balanceText = `*Your Balance* 💰\n\nYour current wallet balance is: *₦${Number(
 				wallet.balance
-			).toLocaleString()}`;
+			).toLocaleString()}*`;
 			await sendTextMessage(user.phoneNumber, balanceText);
-		} else if (choice === "wallet_deposit" || choice === "2") {
-			let depositText = `*Deposit Instructions* 📥\n\nPlease fund your wallet by transferring to your virtual account:`;
+		} else if (
+			choice === "wallet_deposit" ||
+			choice === "2" ||
+			choice.includes("deposit")
+		) {
+			// Deposit linked to main backend (Account Details)
+			let depositText = `*Deposit Account Details* 📥\n\nPlease transfer to your virtual account to fund your LuxePass wallet:`;
+
 			if (wallet.virtualAccount) {
-				depositText += `\n\nBank: ${wallet.virtualAccount.bankName}\nAccount Name: ${wallet.virtualAccount.accountName}\nAccount Number: ${wallet.virtualAccount.accountNumber}`;
+				depositText += `\n\n🏦 *Bank*: ${wallet.virtualAccount.bankName}\n🔢 *Account Number*: ${wallet.virtualAccount.accountNumber}\n👤 *Account Name*: ${wallet.virtualAccount.accountName}\n\n_Funds will be credited instantly upon confirmation._`;
 			} else {
-				depositText = "Please contact support for funding instructions.";
+				depositText =
+					"We are currently setting up your virtual account. Please contact support or check back in a few minutes for deposit instructions.";
 			}
 			await sendTextMessage(user.phoneNumber, depositText);
+		} else {
+			await sendTextMessage(
+				user.phoneNumber,
+				"Please select an option from the menu."
+			);
 		}
 
-		// Keep them in wallet menu for more actions or return them to main
+		// Keep the wallet menu available or offer to return
 		const walletButtons = [
 			{ id: "wallet_balance", title: "💰 Balance" },
 			{ id: "wallet_deposit", title: "📥 Deposit" },
@@ -1049,11 +1052,15 @@ async function handleWalletMenu(user, message) {
 		];
 		await sendInteractiveMessage(
 			user.phoneNumber,
-			"What else would you like to do?",
+			"Is there anything else you need with your wallet?",
 			walletButtons
 		);
 	} catch (error) {
-		logger.error("Error in Wallet Menu Action", { error: error.message });
+		logger.error("Error in handleWalletMenu", { error: error.message });
+		await sendTextMessage(
+			user.phoneNumber,
+			"An error occurred while processing your request. Returning to main menu..."
+		);
 		user.workflowState = STATES.MAIN_MENU;
 		await user.save();
 		await sendWelcomeMenu(user.phoneNumber, user.name);
