@@ -11,6 +11,7 @@ import logger from "../config/logger.js";
 import axios from "axios";
 import config from "../config/env.js";
 import backendService from "./backendService.js";
+import { generateReferralCode } from "../utils/referralUtils.js";
 
 const STATES = {
 	// Onboarding
@@ -35,7 +36,7 @@ const STATES = {
 	CONCIERGE_VERIFY: "CONCIERGE_VERIFY",
 
 	PERSONAL_ASSISTANT: "PERSONAL_ASSISTANT",
-	REFERRAL_START: "REFERRAL_START",
+	REFERRAL_MENU: "REFERRAL_MENU",
 	WALLET_MENU: "WALLET_MENU",
 };
 
@@ -136,6 +137,20 @@ async function initializePaystackPayment(
 async function handleOnboarding(user, message) {
 	if (user.workflowState === STATES.ONBOARDING_NAME) {
 		const name = message.trim();
+
+		// Optional: Check if the name looks like a referral code (e.g. starts with REF)
+		// Or if we want to ask for it separately. For now, we assume standard flow.
+		// If the user entered "REF-XXXX", we might want to capture it.
+		if (name.toUpperCase().startsWith("REF-")) {
+			user.referredBy = name.toUpperCase();
+			await user.save();
+			await sendTextMessage(
+				user.phoneNumber,
+				"Referral code accepted! ✅\n\nNow, please enter your full name:"
+			);
+			return; // Stay in ONBOARDING_NAME
+		}
+
 		if (name.length < 2) {
 			await sendTextMessage(
 				user.phoneNumber,
@@ -494,7 +509,7 @@ async function processWorkflowState(user, message) {
 		case STATES.CONCIERGE_VERIFY:
 			await handleConciergeFlow(user, choice);
 			break;
-		case STATES.REFERRAL_START:
+		case STATES.REFERRAL_MENU:
 			await handleReferralFlow(user, choice);
 			break;
 		case STATES.WALLET_MENU:
@@ -539,98 +554,54 @@ What would you like to do today?`;
 async function handleMainMenu(user, message) {
 	const choice = message.trim().toLowerCase();
 
-	switch (choice) {
-		case "services":
-			await sendServicesMenu(user.phoneNumber);
-			break;
+	// Map old button IDs to new List IDs if necessary, or just handle both
+	// List IDs: services, wallet_menu, referral_program, live_support
 
-		case "menu":
-			await sendWelcomeMenu(user.phoneNumber, user.name);
-			break;
+	if (choice === "services" || choice === "1") {
+		await sendServicesMenu(user.phoneNumber);
+	} else if (choice === "menu" || choice === "main menu") {
+		await sendWelcomeMenu(user.phoneNumber, user.name);
+	} else if (choice === "wallet_menu" || choice === "3") {
+		// Wallet sub-menu logic
+		const walletButtons = [
+			{ id: "wallet_balance", title: "💰 Balance" },
+			{ id: "wallet_deposit", title: "📥 Deposit" },
+			{ id: "menu", title: "⬅️ Back" },
+		];
 
-		case "1":
-			// Reset workflow data
-			user.workflowData = new Map();
-			if (user.email) user.workflowData.set("email", user.email);
+		user.workflowState = STATES.WALLET_MENU;
+		await user.save();
 
-			user.workflowState = STATES.BOOKING_CATEGORY;
-			await user.save();
+		await sendInteractiveMessage(
+			user.phoneNumber,
+			"*LuxePass Wallet* 💳\n\nHow can we help you today?",
+			walletButtons
+		);
+	} else if (choice === "referral_program") {
+		user.workflowState = STATES.REFERRAL_MENU;
+		await user.save();
+		await handleReferralFlow(user, "start");
+	} else if (choice === "live_support" || choice === "4") {
+		user.isLiveChatActive = true;
+		user.workflowState = STATES.PERSONAL_ASSISTANT;
+		await user.save();
 
-			const categoryRows = PROPERTY_TYPES.map((t) => ({
-				id: t.id,
-				title: t.name,
-				description: `View available ${t.name.toLowerCase()}s`,
-			}));
-
-			await sendListMessage(
-				user.phoneNumber,
-				"Select a property type to begin your booking:",
-				"Select Type",
-				[{ title: "Property Types", rows: categoryRows }],
-				"Booking Services 🏨"
-			);
-			break;
-
-		case "2":
-			// Reset workflow data for new concierge
-			user.workflowData = new Map();
-			if (user.email) user.workflowData.set("email", user.email);
-
-			user.workflowState = STATES.CONCIERGE_START;
-			await user.save();
-
-			const conciergeButtons = [
-				{ id: "airport", title: "✈️ Airport" },
-				{ id: "city", title: "🏙️ City Transfer" },
-				{ id: "fleet", title: "🏎️ Fleet Rental" },
-			];
-
-			await sendInteractiveMessage(
-				user.phoneNumber,
-				"*Concierge Services* 🚗\n\nHow can we assist you with transport?",
-				conciergeButtons
-			);
-			break;
-
-		case "3":
-			// Wallet sub-menu
-			const walletButtons = [
-				{ id: "wallet_balance", title: "💰 Balance" },
-				{ id: "wallet_deposit", title: "📥 Deposit" },
-				{ id: "menu", title: "⬅️ Back" },
-			];
-
-			user.workflowState = STATES.WALLET_MENU;
-			await user.save();
-
-			await sendInteractiveMessage(
-				user.phoneNumber,
-				"*LuxePass Wallet* 💳\n\nHow can we help you today?",
-				walletButtons
-			);
-			break;
-
-		case "4":
-			user.isLiveChatActive = true;
-			user.workflowState = STATES.PERSONAL_ASSISTANT;
-			await user.save();
-
-			// Auto-assign PA
-			await autoAssignPA(user);
-			await sendTextMessage(
-				user.phoneNumber,
-				`*Personal Assistant* 👤
+		// Auto-assign PA
+		await autoAssignPA(user);
+		await sendTextMessage(
+			user.phoneNumber,
+			`*Personal Assistant* 👤
  
  Connecting you with a Live Agent...
  Please wait a moment, one of our specialists will be with you shortly to assist with your request.`
-			);
-			break;
-
-		default:
-			await sendTextMessage(
-				user.phoneNumber,
-				"Please select a valid option using the buttons."
-			);
+		);
+	} else {
+		// Fallback for unknown input
+		await sendTextMessage(
+			user.phoneNumber,
+			"Please select a valid option from the menu list."
+		);
+		await sendWelcomeMenu(user.phoneNumber, user.name);
 	}
 }
 
@@ -1049,7 +1020,27 @@ Type 'Menu' to return to the main menu.`
 }
 
 async function handleReferralFlow(user, message) {
-	// Just return to menu
+	const choice = message.trim().toLowerCase();
+
+	if (choice === "menu" || choice === "back" || choice === "main menu") {
+		user.workflowState = STATES.MAIN_MENU;
+		await user.save();
+		await sendWelcomeMenu(user.phoneNumber, user.name);
+		return;
+	}
+
+	// Ensure user has a referral code
+	if (!user.referralCode) {
+		user.referralCode = generateReferralCode(user.phoneNumber);
+		await user.save();
+	}
+
+	await sendTextMessage(
+		user.phoneNumber,
+		`*Referral Program* 🎁\n\nInvite friends to LuxePass and earn rewards!\n\n*Your Referral Code*: *${user.referralCode}*\n\nShare this code with your friends. When they sign up using your code, you'll both get exclusive perks!\n\nStart referring today! 🚀`
+	);
+
+	// Return to menu automatically or offer options
 	user.workflowState = STATES.MAIN_MENU;
 	await user.save();
 	await sendWelcomeMenu(user.phoneNumber, user.name);

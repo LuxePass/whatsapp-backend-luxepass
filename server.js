@@ -17,68 +17,12 @@ import messageRoutes from "./src/routes/messageRoutes.js";
 import conversationRoutes from "./src/routes/conversationRoutes.js";
 import paymentRoutes from "./src/routes/paymentRoutes.js";
 import liveChatRoutes from "./src/routes/liveChatRoutes.js";
+import referralRoutes from "./src/routes/referralRoutes.js";
 import { connectDB } from "./src/config/database.js";
 
 const app = express();
 
-// Connect to Database (handled in startServer)
-// connectDB();
-
-// Trust proxy (important for rate limiting behind reverse proxy)
-app.set("trust proxy", 1);
-
-// Security middleware
-app.use(helmet());
-
-// CORS configuration
-app.use(
-	cors({
-		origin: (origin, callback) => {
-			// Allow requests with no origin (mobile apps, Postman, etc.)
-			if (!origin) return callback(null, true);
-
-			if (config.server.allowedOrigins.includes(origin)) {
-				callback(null, true);
-			} else {
-				logger.warn("CORS blocked origin", { origin });
-				callback(new Error("Not allowed by CORS"));
-			}
-		},
-		credentials: true,
-		methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-		allowedHeaders: ["Content-Type", "Authorization", "X-Hub-Signature-256"],
-	})
-);
-
-// Raw body middleware for webhook signature verification (must be before express.json)
-//app.use(rawBodyMiddleware);
-
-// Body parsing middleware
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true, limit: "10mb" }));
-
-// Request logging
-app.use(requestLogger);
-
-// Rate limiting
-const limiter = rateLimit({
-	windowMs: 15 * 60 * 1000, // 15 minutes
-	max: 100, // Limit each IP to 100 requests per windowMs
-	message: "Too many requests from this IP, please try again later.",
-	standardHeaders: true,
-	legacyHeaders: false,
-});
-
-app.use("/api/", limiter);
-
-// Health check endpoint
-app.get("/health", (req, res) => {
-	res.status(200).json({
-		status: "ok",
-		timestamp: new Date().toISOString(),
-		service: "whatsapp-backend",
-	});
-});
+// ... (existing code)
 
 // API routes
 app.use("/webhook", express.raw({ type: "application/json" }), webhookRoutes);
@@ -86,6 +30,7 @@ app.use("/api/messages", messageRoutes);
 app.use("/api/conversations", conversationRoutes);
 app.use("/api/payment", paymentRoutes);
 app.use("/api/livechat", liveChatRoutes);
+app.use("/api/referrals", referralRoutes);
 
 // 404 handler
 app.use(notFoundHandler);
