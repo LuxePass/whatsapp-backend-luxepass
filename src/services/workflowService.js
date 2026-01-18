@@ -585,8 +585,48 @@ async function handleMainMenu(user, message) {
 	// Map old button IDs to new List IDs if necessary, or just handle both
 	// List IDs: services, wallet_menu, referral_program, live_support
 
-	if (choice === "services" || choice === "1") {
+	if (choice === "services") {
 		await sendServicesMenu(user.phoneNumber);
+	} else if (choice === "1") {
+		// Start Booking Flow
+		user.workflowData = new Map();
+		if (user.email) user.workflowData.set("email", user.email);
+
+		user.workflowState = STATES.BOOKING_CATEGORY;
+		await user.save();
+
+		const categoryRows = PROPERTY_TYPES.map((t) => ({
+			id: t.id,
+			title: t.name,
+			description: `View available ${t.name.toLowerCase()}s`,
+		}));
+
+		await sendListMessage(
+			user.phoneNumber,
+			"Select a property type to begin your booking:",
+			"Select Type",
+			[{ title: "Property Types", rows: categoryRows }],
+			"Booking Services 🏨"
+		);
+	} else if (choice === "2") {
+		// Concierge Flow
+		user.workflowData = new Map();
+		if (user.email) user.workflowData.set("email", user.email);
+
+		user.workflowState = STATES.CONCIERGE_START;
+		await user.save();
+
+		const conciergeButtons = [
+			{ id: "airport", title: "✈️ Airport" },
+			{ id: "city", title: "🏙️ City Transfer" },
+			{ id: "fleet", title: "🏎️ Fleet Rental" },
+		];
+
+		await sendInteractiveMessage(
+			user.phoneNumber,
+			"*Concierge Services* 🚗\n\nHow can we assist you with transport?",
+			conciergeButtons
+		);
 	} else if (choice === "menu" || choice === "main menu") {
 		await sendWelcomeMenu(user.phoneNumber, user.name);
 	} else if (choice === "wallet_menu" || choice === "3") {
