@@ -524,17 +524,45 @@ async function processWorkflowState(user, message) {
 }
 
 async function sendWelcomeMenu(to, name) {
-	const bodyText = `Welcome back to LuxePass, ${name || "Guest"}! 👋
+	const bodyText = `Welcome back to LuxePass, ${
+		name || "Guest"
+	}! 👋\n\nHow can we help you today?`;
 
-Please select an option:`;
-
-	const buttons = [
-		{ id: "services", title: "🚀 Services" },
-		{ id: "3", title: "💳 Wallet" },
-		{ id: "4", title: "👤 Live Support" },
+	const sections = [
+		{
+			title: "Main Menu",
+			rows: [
+				{
+					id: "services",
+					title: "🚀 Services",
+					description: "Bookings & Concierge",
+				},
+				{
+					id: "wallet_menu",
+					title: "💳 Wallet",
+					description: "Balance & Deposits",
+				},
+				{
+					id: "referral_program",
+					title: "🎁 Referral Program",
+					description: "Invite & Earn",
+				},
+				{
+					id: "live_support",
+					title: "👤 Live Support",
+					description: "Chat with a human",
+				},
+			],
+		},
 	];
 
-	await sendInteractiveMessage(to, bodyText, buttons);
+	await sendListMessage(
+		to,
+		bodyText,
+		"Select Option",
+		sections,
+		"LuxePass Menu 🏠"
+	);
 }
 
 async function sendServicesMenu(to) {
