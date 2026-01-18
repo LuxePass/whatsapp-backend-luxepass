@@ -38,9 +38,10 @@ export async function handleWebhookEvent(req, res) {
 		// Verify signature if in production
 		if (process.env.NODE_ENV === "production") {
 			const signature = req.headers["x-hub-signature-256"];
-			const rawBody = JSON.stringify(req.body);
+			// Use captured rawBody from express.json verify callback
+			const rawBody = req.rawBody;
 
-			if (!verifyWebhookSignature(signature, Buffer.from(rawBody))) {
+			if (!rawBody || !verifyWebhookSignature(signature, rawBody)) {
 				logger.warn("Webhook signature verification failed");
 				return res.status(403).json({ error: "Invalid signature" });
 			}

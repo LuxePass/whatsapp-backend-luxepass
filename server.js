@@ -25,7 +25,16 @@ const app = express();
 // ... (existing code)
 
 // API routes
-app.use("/webhook", express.raw({ type: "application/json" }), webhookRoutes);
+app.use(
+	express.json({
+		limit: "10mb",
+		verify: (req, res, buf) => {
+			req.rawBody = buf;
+		},
+	})
+);
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+app.use("/webhook", webhookRoutes);
 app.use("/api/messages", messageRoutes);
 app.use("/api/conversations", conversationRoutes);
 app.use("/api/payment", paymentRoutes);
