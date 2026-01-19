@@ -974,12 +974,24 @@ async function handleConciergeFlow(user, message) {
 			];
 			// Add 4th button via List message if limit is issue, but here we group Flights separately or add as option.
 			// Let's use a List Message for more options including Flight
-			
+
 			const transportOptions = [
-				{ id: "airport", title: "Airport Pickup", description: "Seamless airport transfers" },
-				{ id: "city", title: "City Transfer", description: "Point-to-point city travel" },
+				{
+					id: "airport",
+					title: "Airport Pickup",
+					description: "Seamless airport transfers",
+				},
+				{
+					id: "city",
+					title: "City Transfer",
+					description: "Point-to-point city travel",
+				},
 				{ id: "fleet", title: "Fleet Rental", description: "luxury car rentals" },
-				{ id: "flight", title: "Flight Booking", description: "Domestic & International flights" }
+				{
+					id: "flight",
+					title: "Flight Booking",
+					description: "Domestic & International flights",
+				},
 			];
 
 			await sendListMessage(
@@ -989,7 +1001,6 @@ async function handleConciergeFlow(user, message) {
 				[{ title: "Transport Options", rows: transportOptions }],
 				"Transport Services 🚗"
 			);
-
 		} else if (selection === "funds" || selection === "2") {
 			user.workflowState = STATES.CONCIERGE_FUND_AMOUNT;
 			await user.save();
@@ -1004,45 +1015,55 @@ async function handleConciergeFlow(user, message) {
 		} else {
 			await sendTextMessage(user.phoneNumber, "Please select a valid option.");
 		}
-
 	} else if (user.workflowState === STATES.CONCIERGE_TRANSPORT_TYPE) {
 		// Handle Transport Type Selection
 		const type = choice.toLowerCase(); // airport, city, fleet, flight
 
-		if (['airport', 'city', 'fleet'].includes(type)) {
+		if (["airport", "city", "fleet"].includes(type)) {
 			user.workflowData.set("transportType", type);
 			user.workflowState = STATES.CONCIERGE_TRANSPORT_PICKUP;
 			await user.save();
-			await sendTextMessage(user.phoneNumber, "Please enter the *Pickup Location*:");
-		} else if (type === 'flight') {
-			user.workflowData.set("transportType", 'flight');
+			await sendTextMessage(
+				user.phoneNumber,
+				"Please enter the *Pickup Location*:"
+			);
+		} else if (type === "flight") {
+			user.workflowData.set("transportType", "flight");
 			user.workflowState = STATES.CONCIERGE_FLIGHT_ORIGIN;
 			await user.save();
-			await sendTextMessage(user.phoneNumber, "Please enter the *Origin City/Airport* (e.g. Lagos/LOS):");
+			await sendTextMessage(
+				user.phoneNumber,
+				"Please enter the *Origin City/Airport* (e.g. Lagos/LOS):"
+			);
 		} else {
-			await sendTextMessage(user.phoneNumber, "Please select a valid transport type from the list.");
+			await sendTextMessage(
+				user.phoneNumber,
+				"Please select a valid transport type from the list."
+			);
 		}
-
-	} 
+	}
 	// --- TRANSPORT FLOW (Airport, City, Fleet) ---
 	else if (user.workflowState === STATES.CONCIERGE_TRANSPORT_PICKUP) {
 		user.workflowData.set("pickup", choice);
 		user.workflowState = STATES.CONCIERGE_TRANSPORT_DROPOFF;
 		await user.save();
-		await sendTextMessage(user.phoneNumber, "Please enter the *Drop-off Location*:");
-
+		await sendTextMessage(
+			user.phoneNumber,
+			"Please enter the *Drop-off Location*:"
+		);
 	} else if (user.workflowState === STATES.CONCIERGE_TRANSPORT_DROPOFF) {
 		user.workflowData.set("dropoff", choice);
 		user.workflowState = STATES.CONCIERGE_TRANSPORT_DATE;
 		await user.save();
-		await sendTextMessage(user.phoneNumber, "Please enter the *Date & Time* (e.g. Tomorrow 10am or 2025-12-25 14:00):");
-
+		await sendTextMessage(
+			user.phoneNumber,
+			"Please enter the *Date & Time* (e.g. Tomorrow 10am or 2025-12-25 14:00):"
+		);
 	} else if (user.workflowState === STATES.CONCIERGE_TRANSPORT_DATE) {
 		user.workflowData.set("date", choice);
 		user.workflowState = STATES.CONCIERGE_TRANSPORT_PASSENGERS;
 		await user.save();
 		await sendTextMessage(user.phoneNumber, "How many passengers?");
-
 	} else if (user.workflowState === STATES.CONCIERGE_TRANSPORT_PASSENGERS) {
 		const passengers = choice.replace(/\D/g, "") || "1";
 		user.workflowData.set("passengers", passengers);
@@ -1052,32 +1073,32 @@ async function handleConciergeFlow(user, message) {
 		const pickup = user.workflowData.get("pickup");
 		const dropoff = user.workflowData.get("dropoff");
 		const date = user.workflowData.get("date");
-		
+
 		// Create Booking via Backend
 		await sendTextMessage(user.phoneNumber, "Processing your request... ⏳");
 
 		const bookingData = {
 			type: "SHORTLET", // Mapping Transport to SHORTLET for now as per docs, or could use generic if available
-			userId: user.coreUserId || undefined, // Backend should handle extracting from context or finding by phone if authenticated correctly? 
-			// Wait, the backendService creates a booking. The API requires userId usually but if we are logged in as admin... 
-			// actually backendService.createBooking calls POST /bookings. 
-			// We need to pass the user's phone or something to identify them in the backend if we are calling from the "server" context. 
+			userId: user.coreUserId || undefined, // Backend should handle extracting from context or finding by phone if authenticated correctly?
+			// Wait, the backendService creates a booking. The API requires userId usually but if we are logged in as admin...
+			// actually backendService.createBooking calls POST /bookings.
+			// We need to pass the user's phone or something to identify them in the backend if we are calling from the "server" context.
 			// But checkUserExists uses phone. backendService.registerUser returns user object.
 			// Let's look at `backendService.createBooking`. It calls `apiClient.post("/bookings", bookingData)`.
-			// The backend expects authenticated user. Since this is a server-to-server call (likely), 
-			// we generally need a way to impersonate or pass user ID. 
+			// The backend expects authenticated user. Since this is a server-to-server call (likely),
+			// we generally need a way to impersonate or pass user ID.
 			// The API docs say: "User Identifier: ... Request body: userId... or phone".
 			// So we can pass `phone: user.phoneNumber`.
-			
+
 			phone: user.phoneNumber, // Identifying the user
 			specialRequests: `TRANSPORT REQUEST (${transportType.toUpperCase()}): Pickup: ${pickup}, Dropoff: ${dropoff}, Date: ${date}, Pax: ${passengers}`,
-			checkIn: new Date().toISOString().split('T')[0], // Dummy dates for SHORTLET validation if STRICT
-			checkOut: new Date(Date.now() + 86400000).toISOString().split('T')[0],
+			checkIn: new Date().toISOString().split("T")[0], // Dummy dates for SHORTLET validation if STRICT
+			checkOut: new Date(Date.now() + 86400000).toISOString().split("T")[0],
 			guestCount: parseInt(passengers),
-			currency: "NGN"
+			currency: "NGN",
 		};
 
-		// Note: Ideally we'd have a specific TRANSPORT type in backend. 
+		// Note: Ideally we'd have a specific TRANSPORT type in backend.
 		// Using SHORTLET with specialRequests is a workaround.
 
 		const booking = await backendService.createBooking(bookingData);
@@ -1085,7 +1106,10 @@ async function handleConciergeFlow(user, message) {
 		if (booking) {
 			await sendTextMessage(
 				user.phoneNumber,
-				`✅ *Transport Request Received!*\n\nReference: ${booking.id.substring(0,8)}\nType: ${transportType.toUpperCase()}\n\nOur concierge team will contact you shortly to confirm details and pricing.`
+				`✅ *Transport Request Received!*\n\nReference: ${booking.id.substring(
+					0,
+					8
+				)}\nType: ${transportType.toUpperCase()}\n\nOur concierge team will contact you shortly to confirm details and pricing.`
 			);
 		} else {
 			await sendTextMessage(
@@ -1098,53 +1122,61 @@ async function handleConciergeFlow(user, message) {
 			await user.save();
 			await autoAssignPA(user);
 		}
-		
+
 		user.workflowState = STATES.MAIN_MENU;
 		await user.save();
 		await sendWelcomeMenu(user.phoneNumber, user.name);
-
 	}
 	// --- FLIGHT FLOW ---
 	else if (user.workflowState === STATES.CONCIERGE_FLIGHT_ORIGIN) {
 		user.workflowData.set("origin", choice);
 		user.workflowState = STATES.CONCIERGE_FLIGHT_DESTINATION;
 		await user.save();
-		await sendTextMessage(user.phoneNumber, "Please enter the *Destination City/Airport*:");
-
+		await sendTextMessage(
+			user.phoneNumber,
+			"Please enter the *Destination City/Airport*:"
+		);
 	} else if (user.workflowState === STATES.CONCIERGE_FLIGHT_DESTINATION) {
 		user.workflowData.set("destination", choice);
 		user.workflowState = STATES.CONCIERGE_FLIGHT_DATE;
 		await user.save();
-		await sendTextMessage(user.phoneNumber, "Please enter the *Departure Date* (YYYY-MM-DD):");
-
+		await sendTextMessage(
+			user.phoneNumber,
+			"Please enter the *Departure Date* (YYYY-MM-DD):"
+		);
 	} else if (user.workflowState === STATES.CONCIERGE_FLIGHT_DATE) {
 		user.workflowData.set("date", choice);
 		user.workflowState = STATES.CONCIERGE_FLIGHT_PASSENGERS;
 		await user.save();
 		await sendTextMessage(user.phoneNumber, "How many passengers?");
-
 	} else if (user.workflowState === STATES.CONCIERGE_FLIGHT_PASSENGERS) {
 		const passengers = choice.replace(/\D/g, "") || "1";
 		user.workflowData.set("passengers", passengers);
 		user.workflowState = STATES.CONCIERGE_FLIGHT_CLASS;
 		await user.save();
-		
+
 		const classButtons = [
 			{ id: "economy", title: "Economy" },
 			{ id: "business", title: "Business" },
-			{ id: "first", title: "First Class" }
+			{ id: "first", title: "First Class" },
 		];
-		await sendInteractiveMessage(user.phoneNumber, "Select *Cabin Class*:", classButtons);
-
+		await sendInteractiveMessage(
+			user.phoneNumber,
+			"Select *Cabin Class*:",
+			classButtons
+		);
 	} else if (user.workflowState === STATES.CONCIERGE_FLIGHT_CLASS) {
 		const flightClass = choice.toLowerCase();
-		
+
 		const origin = user.workflowData.get("origin");
 		const destination = user.workflowData.get("destination");
 		const date = user.workflowData.get("date");
 		const passengers = user.workflowData.get("passengers");
 
-		await sendTextMessage(user.phoneNumber, "Processing your flight request... ✈️");
+		await sendTextMessage(
+			user.phoneNumber,
+			"Processing your flight request... ✈️"
+		);
 
 		const bookingData = {
 			type: "FLIGHT",
@@ -1154,10 +1186,10 @@ async function handleConciergeFlow(user, message) {
 				destination,
 				departureDate: date,
 				passengers: parseInt(passengers),
-				metadata: { cabinClass: flightClass }
+				metadata: { cabinClass: flightClass },
 			},
 			specialRequests: `Class: ${flightClass}`,
-			currency: "NGN"
+			currency: "NGN",
 		};
 
 		const booking = await backendService.createBooking(bookingData);
@@ -1165,7 +1197,10 @@ async function handleConciergeFlow(user, message) {
 		if (booking) {
 			await sendTextMessage(
 				user.phoneNumber,
-				`✅ *Flight Request Received!*\n\nReference: ${booking.id.substring(0,8)}\nRoute: ${origin} ➡️ ${destination}\n\nOur concierge team will contact you shortly with flight options.`
+				`✅ *Flight Request Received!*\n\nReference: ${booking.id.substring(
+					0,
+					8
+				)}\nRoute: ${origin} ➡️ ${destination}\n\nOur concierge team will contact you shortly with flight options.`
 			);
 		} else {
 			await sendTextMessage(
@@ -1177,38 +1212,44 @@ async function handleConciergeFlow(user, message) {
 			await user.save();
 			await autoAssignPA(user);
 		}
-		
+
 		user.workflowState = STATES.MAIN_MENU;
 		await user.save();
 		await sendWelcomeMenu(user.phoneNumber, user.name);
-
 	}
 	// --- EMERGENCY FUNDS FLOW ---
 	else if (user.workflowState === STATES.CONCIERGE_FUND_AMOUNT) {
 		const amount = parseFloat(choice.replace(/[^0-9.]/g, ""));
 		if (isNaN(amount) || amount <= 0) {
-			await sendTextMessage(user.phoneNumber, "Please enter a valid amount (e.g. 50000).");
+			await sendTextMessage(
+				user.phoneNumber,
+				"Please enter a valid amount (e.g. 50000)."
+			);
 			return;
 		}
 
 		user.workflowData.set("amount", amount);
 		user.workflowState = STATES.CONCIERGE_FUND_NARRATION;
 		await user.save();
-		await sendTextMessage(user.phoneNumber, "Please provide a brief reason (Narration):");
-
+		await sendTextMessage(
+			user.phoneNumber,
+			"Please provide a brief reason (Narration):"
+		);
 	} else if (user.workflowState === STATES.CONCIERGE_FUND_NARRATION) {
 		user.workflowData.set("narration", choice);
-		
+
 		// Ask for Security Answer Verification (Assuming Security Question is known or we ask generic)
 		// Based on `backendService.initiateTransfer`, we need a security answer.
 		// We can check if user has a security question set locally or just ask "Verify your identity... Answer to your Security Question?"
 		// For better UX, we could fetch the specific question if possible, but currently checkUserExists returns user data which might have it?
 		// checkUserExists returns `response.data.data`. Let's assume we can ask securely.
-		
+
 		user.workflowState = STATES.CONCIERGE_FUND_VERIFY;
 		await user.save();
-		await sendTextMessage(user.phoneNumber, "🔒 *Security Check*\n\nPlease enter the answer to your Security Question to authorize this request:");
-
+		await sendTextMessage(
+			user.phoneNumber,
+			"🔒 *Security Check*\n\nPlease enter the answer to your Security Question to authorize this request:"
+		);
 	} else if (user.workflowState === STATES.CONCIERGE_FUND_VERIFY) {
 		const securityAnswer = choice.trim();
 		const amount = user.workflowData.get("amount");
@@ -1246,9 +1287,6 @@ async function handleConciergeFlow(user, message) {
 		await sendWelcomeMenu(user.phoneNumber, user.name);
 	}
 }
-}
-
-
 
 async function handleReferralFlow(user, message) {
 	const choice = message.trim().toLowerCase();
