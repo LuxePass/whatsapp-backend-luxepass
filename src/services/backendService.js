@@ -159,11 +159,17 @@ export async function createBooking(bookingData) {
 /**
  * Get wallet for a user by identifier
  * @param {string} identifier - userId or uniqueId
+ * @param {string} token - Optional security verification token
  * @returns {Promise<Object|null>}
  */
-export async function getWallet(identifier) {
+export async function getWallet(identifier, token = null) {
 	try {
-		const response = await apiClient.get(`/wallet/${identifier}`);
+		const headers = {};
+		if (token) {
+			headers["X-Security-Verification-Token"] = token;
+		}
+
+		const response = await apiClient.get(`/wallet/${identifier}`, { headers });
 		if (response.data.success) {
 			return response.data.data;
 		}
@@ -198,11 +204,17 @@ export async function setSecurityQuestion(data) {
 /**
  * Initiate a transfer from user's wallet
  * @param {Object} data - { securityAnswer, amount, narration, [userId/phone/etc] }
+ * @param {string} token - Optional security verification token
  * @returns {Promise<Object|null>}
  */
-export async function initiateTransfer(data) {
+export async function initiateTransfer(data, token = null) {
 	try {
-		const response = await apiClient.post("/transfers", data);
+		const headers = {};
+		if (token) {
+			headers["X-Security-Verification-Token"] = token;
+		}
+
+		const response = await apiClient.post("/transfers", data, { headers });
 		if (response.data.success) {
 			return response.data.data;
 		}

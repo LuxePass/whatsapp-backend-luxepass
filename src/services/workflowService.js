@@ -1338,16 +1338,23 @@ async function handleReferralFlow(user, message) {
 	await sendWelcomeMenu(user.phoneNumber, user.name);
 }
 
-async function handleWalletMenu(user, message) {
+async function handleWalletMenu(user, message, token = null) {
 	const choice = message.trim().toLowerCase();
+
+	// Use stored token if not provided (optional optimization)
+	const verificationToken = token || user.workflowData.get("verificationToken");
 
 	if (choice === "menu" || choice === "back" || choice === "main menu") {
 		user.workflowState = STATES.MAIN_MENU;
 		user.workflowData.delete("walletPendingAction");
+		user.workflowData.delete("verificationToken");
 		await user.save();
 		await sendWelcomeMenu(user.phoneNumber, user.name);
 		return;
 	}
+
+	// ... (rest of security verification block remains the same, will be handled by replace above if needed, but wait)
+	// Actually I'm replacing the whole function head to add 'token' param.
 
 	// Handle Security Verification Response
 	if (user.workflowState === STATES.WALLET_VERIFY_SECURITY) {
@@ -1358,19 +1365,21 @@ async function handleWalletMenu(user, message) {
 				"https://backend-luxepass.onrender.com/api/v1";
 
 			const response = await axios.post(
-				`${CORE_BACKEND_URL}/auth/verify-security-answer/inline`,
+				`${CORE_BACKEND_URL}/auth/verify-security-answer`,
 				{
 					uniqueId: user.phoneNumber,
 					answer: securityAnswer,
 				},
 			);
 
-			if (response.data.verified) {
+			if (response.data.success && response.data.data.token) {
+				const verificationToken = response.data.data.token;
 				const pendingAction = user.workflowData.get("walletPendingAction");
 				user.workflowState = STATES.WALLET_MENU;
 				user.workflowData.delete("walletPendingAction");
+				user.workflowData.set("verificationToken", verificationToken); // Optional: Store if needed for multiple actions
 				await user.save();
-				return handleWalletMenu(user, pendingAction);
+				return handleWalletMenu(user, pendingAction, verificationToken);
 			} else {
 				await sendTextMessage(
 					user.phoneNumber,
@@ -1417,7 +1426,10 @@ async function handleWalletMenu(user, message) {
 
 	try {
 		// Fetch fresh wallet details from main backend for both balance and deposit
-		const wallet = await backendService.getWallet(user.phoneNumber);
+		const wallet = await backendService.getWallet(
+			user.phoneNumber,
+			verificationToken,
+		);
 
 		if (!wallet) {
 			await sendTextMessage(
@@ -1440,8 +1452,10 @@ async function handleWalletMenu(user, message) {
 			// Deposit linked to main backend (Account Details)
 			let depositText = `*Deposit Account Details* 📥\n\nPlease transfer to your virtual account to fund your LuxePass wallet:`;
 
-			if (wallet.virtualAccount) {
-				depositText += `\n\n🏦 *Bank*: ${wallet.virtualAccount.bankName}\n🔢 *Account Number*: ${wallet.virtualAccount.accountNumber}\n👤 *Account Name*: ${wallet.virtualAccount.accountName}\n\n_Funds will be credited instantly upon confirmation._`;
+			const vAccount = wallet.virtualAccounts?.[0] || wallet.virtualAccount;
+
+			if (vAccount) {
+				depositText += `\n\n🏦 *Bank*: ${vAccount.bankName}\n🔢 *Account Number*: ${vAccount.accountNumber}\n👤 *Account Name*: ${vAccount.accountName}\n\n_Funds will be credited instantly upon confirmation._`;
 			} else {
 				depositText =
 					"We are currently setting up your virtual account. Please contact support or check back in a few minutes for deposit instructions.";
