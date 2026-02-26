@@ -1,5 +1,5 @@
 import User from "../models/User.js";
-import { logger } from "../utils/logger.js";
+import logger from "../config/logger.js";
 
 /**
  * Get saved bank accounts for a user
