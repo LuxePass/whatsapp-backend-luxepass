@@ -17,6 +17,7 @@ const STATES = {
 	// Onboarding
 	ONBOARDING_NAME: "ONBOARDING_NAME",
 	ONBOARDING_EMAIL: "ONBOARDING_EMAIL",
+	ONBOARDING_REFERRAL: "ONBOARDING_REFERRAL",
 	ONBOARDING_SECURITY_QUESTION: "ONBOARDING_SECURITY_QUESTION",
 	ONBOARDING_SECURITY_ANSWER: "ONBOARDING_SECURITY_ANSWER",
 
@@ -54,6 +55,7 @@ const STATES = {
 	PERSONAL_ASSISTANT: "PERSONAL_ASSISTANT",
 	REFERRAL_MENU: "REFERRAL_MENU",
 	WALLET_MENU: "WALLET_MENU",
+	WALLET_VERIFY_SECURITY: "WALLET_VERIFY_SECURITY",
 };
 
 const PROPERTY_TYPES = [
@@ -103,7 +105,7 @@ async function initializePaystackPayment(
 	email,
 	amount,
 	reference,
-	metadata = {}
+	metadata = {},
 ) {
 	try {
 		const paystackSecretKey = process.env.PAYSTACK_SECRET_KEY;
@@ -127,7 +129,7 @@ async function initializePaystackPayment(
 					Authorization: `Bearer ${paystackSecretKey}`,
 					"Content-Type": "application/json",
 				},
-			}
+			},
 		);
 
 		return {
@@ -162,7 +164,7 @@ async function handleOnboarding(user, message) {
 			await user.save();
 			await sendTextMessage(
 				user.phoneNumber,
-				"Referral code accepted! ✅\n\nNow, please enter your full name:"
+				"Referral code accepted! ✅\n\nNow, please enter your full name:",
 			);
 			return; // Stay in ONBOARDING_NAME
 		}
@@ -170,7 +172,7 @@ async function handleOnboarding(user, message) {
 		if (name.length < 2) {
 			await sendTextMessage(
 				user.phoneNumber,
-				"Please enter a valid name (at least 2 characters)."
+				"Please enter a valid name (at least 2 characters).",
 			);
 			return;
 		}
@@ -181,7 +183,7 @@ async function handleOnboarding(user, message) {
 
 		await sendTextMessage(
 			user.phoneNumber,
-			`Nice to meet you, ${name}! 👋\n\nPlease provide your email address for account registration:`
+			`Nice to meet you, ${name}! 👋\n\nPlease provide your email address for account registration:`,
 		);
 	} else if (user.workflowState === STATES.ONBOARDING_EMAIL) {
 		const email = message.trim();
@@ -190,7 +192,7 @@ async function handleOnboarding(user, message) {
 		if (!emailRegex.test(email)) {
 			await sendTextMessage(
 				user.phoneNumber,
-				"Please enter a valid email address."
+				"Please enter a valid email address.",
 			);
 			return;
 		}
@@ -198,12 +200,31 @@ async function handleOnboarding(user, message) {
 		user.email = email;
 		user.workflowData.set("email", email);
 
-		// Sync with core backend immediately after getting name and email
+		user.workflowState = STATES.ONBOARDING_REFERRAL;
+		await user.save();
+
+		await sendTextMessage(
+			user.phoneNumber,
+			`Excellent! Last thing before we finish—do you have a referral code? 🎁\n\nIf you do, please enter it now. If not, just type *SKIP* to continue.`,
+		);
+	} else if (user.workflowState === STATES.ONBOARDING_REFERRAL) {
+		const referralInput = message.trim().toUpperCase();
+
+		if (referralInput !== "SKIP") {
+			user.referredBy = referralInput;
+			logger.info("Referral code captured during onboarding", {
+				phone: user.phoneNumber,
+				code: referralInput,
+			});
+		}
+
+		// Sync with core backend immediately after getting name, email, and optional referral
 		try {
 			const coreUser = await backendService.registerUser({
 				name: user.name,
 				phone: user.phoneNumber,
 				email: user.email,
+				referralCode: user.referredBy, // Pass the referral code
 			});
 			if (coreUser) {
 				user.coreUserId = coreUser.id;
@@ -237,7 +258,7 @@ async function handleOnboarding(user, message) {
 		if (isNaN(index) || index < 0 || index >= SECURITY_QUESTIONS.length) {
 			await sendTextMessage(
 				user.phoneNumber,
-				"Please enter a valid number (1-5) to select a security question."
+				"Please enter a valid number (1-5) to select a security question.",
 			);
 			return;
 		}
@@ -249,14 +270,14 @@ async function handleOnboarding(user, message) {
 
 		await sendTextMessage(
 			user.phoneNumber,
-			`Got it. Now, what is the answer to: "${question}"?`
+			`Got it. Now, what is the answer to: "${question}"?`,
 		);
 	} else if (user.workflowState === STATES.ONBOARDING_SECURITY_ANSWER) {
 		const answer = message.trim();
 		if (answer.length < 2) {
 			await sendTextMessage(
 				user.phoneNumber,
-				"The answer must be at least 2 characters."
+				"The answer must be at least 2 characters.",
 			);
 			return;
 		}
@@ -301,7 +322,7 @@ async function handleOnboarding(user, message) {
 
 		await sendTextMessage(
 			user.phoneNumber,
-			`Setup complete! Welcome to LuxePass. 🥂${walletInfo}`
+			`Setup complete! Welcome to LuxePass. 🥂${walletInfo}`,
 		);
 
 		await sendWelcomeMenu(user.phoneNumber, user.name);
@@ -330,7 +351,7 @@ async function autoAssignPA(user) {
 
 		// Sort PAs by assignment count (least busy first)
 		const sortedPAs = [...pas].sort(
-			(a, b) => (paCounts[a.id] || 0) - (paCounts[b.id] || 0)
+			(a, b) => (paCounts[a.id] || 0) - (paCounts[b.id] || 0),
 		);
 		const chosenPA = sortedPAs[0];
 
@@ -423,7 +444,7 @@ export async function handleWorkflow(from, message, name) {
 					`*Personal Assistant* 👤
 
 Connecting you with a Live Agent...
-Please wait a moment, one of our specialists will be with you shortly to assist with your request.`
+Please wait a moment, one of our specialists will be with you shortly to assist with your request.`,
 				);
 				logger.info("New user requested live chat immediately", {
 					phoneNumber,
@@ -444,13 +465,13 @@ Please wait a moment, one of our specialists will be with you shortly to assist 
 				await user.save();
 				await sendTextMessage(
 					phoneNumber,
-					`Welcome to LuxePass, ${name}! 👋\n\nTo get started, please provide your email address for confirmations:`
+					`Welcome to LuxePass, ${name}! 👋\n\nTo get started, please provide your email address for confirmations:`,
 				);
 			} else {
 				// Ask for name
 				await sendTextMessage(
 					phoneNumber,
-					"Welcome to LuxePass! 👋\n\nBefore we begin, may I ask for your name?"
+					"Welcome to LuxePass! 👋\n\nBefore we begin, may I ask for your name?",
 				);
 			}
 			return;
@@ -486,7 +507,7 @@ Please wait a moment, one of our specialists will be with you shortly to assist 
 		const targetNumber = from.replace(/\D/g, "");
 		await sendTextMessage(
 			targetNumber,
-			"Sorry, I encountered an error. Please type 'Menu' to restart."
+			"Sorry, I encountered an error. Please type 'Menu' to restart.",
 		);
 	}
 }
@@ -500,6 +521,7 @@ async function processWorkflowState(user, message) {
 	switch (user.workflowState) {
 		case STATES.ONBOARDING_NAME:
 		case STATES.ONBOARDING_EMAIL:
+		case STATES.ONBOARDING_REFERRAL:
 		case STATES.ONBOARDING_SECURITY_QUESTION:
 		case STATES.ONBOARDING_SECURITY_ANSWER:
 			await handleOnboarding(user, choice);
@@ -540,6 +562,7 @@ async function processWorkflowState(user, message) {
 			await handleReferralFlow(user, choice);
 			break;
 		case STATES.WALLET_MENU:
+		case STATES.WALLET_VERIFY_SECURITY:
 			await handleWalletMenu(user, choice);
 			break;
 		default:
@@ -588,7 +611,7 @@ async function sendWelcomeMenu(to, name) {
 		bodyText,
 		"Select Option",
 		sections,
-		"LuxePass Menu 🏠"
+		"LuxePass Menu 🏠",
 	);
 }
 
@@ -633,7 +656,7 @@ async function handleMainMenu(user, message) {
 			"Select a property type to begin your booking:",
 			"Select Type",
 			[{ title: "Property Types", rows: categoryRows }],
-			"Booking Services 🏨"
+			"Booking Services 🏨",
 		);
 	} else if (choice === "2") {
 		// Concierge Flow
@@ -652,7 +675,7 @@ async function handleMainMenu(user, message) {
 		await sendInteractiveMessage(
 			user.phoneNumber,
 			"*Concierge Services* 🛎️\n\nHow can we assist you today?",
-			conciergeButtons
+			conciergeButtons,
 		);
 	} else if (choice === "menu" || choice === "main menu") {
 		await sendWelcomeMenu(user.phoneNumber, user.name);
@@ -670,7 +693,7 @@ async function handleMainMenu(user, message) {
 		await sendInteractiveMessage(
 			user.phoneNumber,
 			"*LuxePass Wallet* 💳\n\nHow can we help you today?",
-			walletButtons
+			walletButtons,
 		);
 	} else if (choice === "referral_program") {
 		user.workflowState = STATES.REFERRAL_MENU;
@@ -688,13 +711,13 @@ async function handleMainMenu(user, message) {
 			`*Personal Assistant* 👤
  
  Connecting you with a Live Agent...
- Please wait a moment, one of our specialists will be with you shortly to assist with your request.`
+ Please wait a moment, one of our specialists will be with you shortly to assist with your request.`,
 		);
 	} else {
 		// Fallback for unknown input
 		await sendTextMessage(
 			user.phoneNumber,
-			"Please select a valid option from the menu list."
+			"Please select a valid option from the menu list.",
 		);
 		await sendWelcomeMenu(user.phoneNumber, user.name);
 	}
@@ -724,7 +747,7 @@ async function handleBookingFlow(user, message) {
 					id: l.id,
 					title: l.name.substring(0, 24),
 					description: `${currencySymbol}${Number(
-						l.pricePerNight
+						l.pricePerNight,
 					).toLocaleString()}/night - ${l.city}`,
 				};
 			});
@@ -734,12 +757,12 @@ async function handleBookingFlow(user, message) {
 				`We found ${listings.length} ${propertyType.toLowerCase()}(s) for you.`,
 				"Select Property",
 				[{ title: "Available Listings", rows: listingRows }],
-				`Available ${propertyType}s 🏨`
+				`Available ${propertyType}s 🏨`,
 			);
 		} else {
 			await sendTextMessage(
 				user.phoneNumber,
-				`Sorry, no ${propertyType}s are available right now. Type 'Menu' to restart.`
+				`Sorry, no ${propertyType}s are available right now. Type 'Menu' to restart.`,
 			);
 		}
 	} else if (user.workflowState === STATES.BOOKING_LISTING) {
@@ -761,14 +784,14 @@ async function handleBookingFlow(user, message) {
 
 		await sendTextMessage(
 			user.phoneNumber,
-			"Great choice! Please enter your *Check-in Date* (YYYY-MM-DD):"
+			"Great choice! Please enter your *Check-in Date* (YYYY-MM-DD):",
 		);
 	} else if (user.workflowState === STATES.BOOKING_CHECKIN) {
 		const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
 		if (!dateRegex.test(choice)) {
 			await sendTextMessage(
 				user.phoneNumber,
-				"Invalid format. Please use YYYY-MM-DD (e.g., 2025-12-25):"
+				"Invalid format. Please use YYYY-MM-DD (e.g., 2025-12-25):",
 			);
 			return;
 		}
@@ -779,14 +802,14 @@ async function handleBookingFlow(user, message) {
 
 		await sendTextMessage(
 			user.phoneNumber,
-			"Got it. Now, please enter your *Check-out Date* (YYYY-MM-DD):"
+			"Got it. Now, please enter your *Check-out Date* (YYYY-MM-DD):",
 		);
 	} else if (user.workflowState === STATES.BOOKING_CHECKOUT) {
 		const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
 		if (!dateRegex.test(choice)) {
 			await sendTextMessage(
 				user.phoneNumber,
-				"Invalid format. Please use YYYY-MM-DD (e.g., 2025-12-30):"
+				"Invalid format. Please use YYYY-MM-DD (e.g., 2025-12-30):",
 			);
 			return;
 		}
@@ -797,7 +820,7 @@ async function handleBookingFlow(user, message) {
 		if (checkOut <= checkIn) {
 			await sendTextMessage(
 				user.phoneNumber,
-				"Check-out date must be after check-in date. Please enter a valid date:"
+				"Check-out date must be after check-in date. Please enter a valid date:",
 			);
 			return;
 		}
@@ -812,7 +835,7 @@ async function handleBookingFlow(user, message) {
 		if (!guests) {
 			await sendTextMessage(
 				user.phoneNumber,
-				"Please enter a valid number for guests."
+				"Please enter a valid number for guests.",
 			);
 			return;
 		}
@@ -822,7 +845,7 @@ async function handleBookingFlow(user, message) {
 
 		await sendTextMessage(
 			user.phoneNumber,
-			"Any special requests? (Type 'None' if none)"
+			"Any special requests? (Type 'None' if none)",
 		);
 	} else if (user.workflowState === STATES.BOOKING_DETAILS_REQUESTS) {
 		user.workflowData.set("specialRequests", choice);
@@ -866,7 +889,7 @@ async function processBookingPayment(user) {
 
 	await sendTextMessage(
 		user.phoneNumber,
-		`*Booking Summary* 🏨\n\nProperty: ${propertyName}\nDates: ${checkIn} to ${checkOut} (${nights} nights)\nGuests: ${guestCount}\nAmount: ₦${totalAmount.toLocaleString()}\nRequests: ${specialRequests}\n\n${walletInfo}\n\n*To confirm this booking, please type your Security Answer:*`
+		`*Booking Summary* 🏨\n\nProperty: ${propertyName}\nDates: ${checkIn} to ${checkOut} (${nights} nights)\nGuests: ${guestCount}\nAmount: ₦${totalAmount.toLocaleString()}\nRequests: ${specialRequests}\n\n${walletInfo}\n\n*To confirm this booking, please type your Security Answer:*`,
 	);
 }
 
@@ -909,8 +932,8 @@ async function handleBookingPaymentVerify(user, message) {
 				await sendTextMessage(
 					user.phoneNumber,
 					`⚠️ *Insufficient Balance*\n\nYour current balance is ₦${Number(
-						wallet.balance
-					).toLocaleString()}, but this booking requires ₦${totalAmount.toLocaleString()}.${depositInstructions}\n\nOnce deposited, please type your *Security Answer* again to confirm.`
+						wallet.balance,
+					).toLocaleString()}, but this booking requires ₦${totalAmount.toLocaleString()}.${depositInstructions}\n\nOnce deposited, please type your *Security Answer* again to confirm.`,
 				);
 				return;
 			}
@@ -932,10 +955,10 @@ async function handleBookingPaymentVerify(user, message) {
 				await sendTextMessage(
 					user.phoneNumber,
 					`*Booking Confirmed!* 🎉\n\nYour booking for *${user.workflowData.get(
-						"propertyName"
+						"propertyName",
 					)}* has been confirmed.\n\nBooking ID: ${
 						booking.id
-					}\nAmount: ₦${totalAmount.toLocaleString()}\n\nType 'Menu' to return to the main menu.`
+					}\nAmount: ₦${totalAmount.toLocaleString()}\n\nType 'Menu' to return to the main menu.`,
 				);
 				user.workflowState = STATES.MAIN_MENU;
 				await user.save();
@@ -949,7 +972,7 @@ async function handleBookingPaymentVerify(user, message) {
 		logger.error("Error in booking payment flow", { error: error.message });
 		await sendTextMessage(
 			user.phoneNumber,
-			"Sorry, we couldn't process your booking. Please ensure you have enough balance and provided the correct security answer.\n\nType 'Menu' to restart."
+			"Sorry, we couldn't process your booking. Please ensure you have enough balance and provided the correct security answer.\n\nType 'Menu' to restart.",
 		);
 	}
 }
@@ -999,14 +1022,14 @@ async function handleConciergeFlow(user, message) {
 				"Please select your transport type:",
 				"Select Type",
 				[{ title: "Transport Options", rows: transportOptions }],
-				"Transport Services 🚗"
+				"Transport Services 🚗",
 			);
 		} else if (selection === "funds" || selection === "2") {
 			user.workflowState = STATES.CONCIERGE_FUND_AMOUNT;
 			await user.save();
 			await sendTextMessage(
 				user.phoneNumber,
-				"*Emergency Funds* 💸\n\nHow much would you like to request? (in NGN)\n\ne.g. 50000"
+				"*Emergency Funds* 💸\n\nHow much would you like to request? (in NGN)\n\ne.g. 50000",
 			);
 		} else if (selection === "menu" || selection === "back") {
 			user.workflowState = STATES.MAIN_MENU;
@@ -1025,7 +1048,7 @@ async function handleConciergeFlow(user, message) {
 			await user.save();
 			await sendTextMessage(
 				user.phoneNumber,
-				"Please enter the *Pickup Location*:"
+				"Please enter the *Pickup Location*:",
 			);
 		} else if (type === "flight") {
 			user.workflowData.set("transportType", "flight");
@@ -1033,12 +1056,12 @@ async function handleConciergeFlow(user, message) {
 			await user.save();
 			await sendTextMessage(
 				user.phoneNumber,
-				"Please enter the *Origin City/Airport* (e.g. Lagos/LOS):"
+				"Please enter the *Origin City/Airport* (e.g. Lagos/LOS):",
 			);
 		} else {
 			await sendTextMessage(
 				user.phoneNumber,
-				"Please select a valid transport type from the list."
+				"Please select a valid transport type from the list.",
 			);
 		}
 	}
@@ -1049,7 +1072,7 @@ async function handleConciergeFlow(user, message) {
 		await user.save();
 		await sendTextMessage(
 			user.phoneNumber,
-			"Please enter the *Drop-off Location*:"
+			"Please enter the *Drop-off Location*:",
 		);
 	} else if (user.workflowState === STATES.CONCIERGE_TRANSPORT_DROPOFF) {
 		user.workflowData.set("dropoff", choice);
@@ -1057,7 +1080,7 @@ async function handleConciergeFlow(user, message) {
 		await user.save();
 		await sendTextMessage(
 			user.phoneNumber,
-			"Please enter the *Date & Time* (e.g. Tomorrow 10am or 2025-12-25 14:00):"
+			"Please enter the *Date & Time* (e.g. Tomorrow 10am or 2025-12-25 14:00):",
 		);
 	} else if (user.workflowState === STATES.CONCIERGE_TRANSPORT_DATE) {
 		user.workflowData.set("date", choice);
@@ -1108,13 +1131,13 @@ async function handleConciergeFlow(user, message) {
 				user.phoneNumber,
 				`✅ *Transport Request Received!*\n\nReference: ${booking.id.substring(
 					0,
-					8
-				)}\nType: ${transportType.toUpperCase()}\n\nOur concierge team will contact you shortly to confirm details and pricing.`
+					8,
+				)}\nType: ${transportType.toUpperCase()}\n\nOur concierge team will contact you shortly to confirm details and pricing.`,
 			);
 		} else {
 			await sendTextMessage(
 				user.phoneNumber,
-				"⚠️ We couldn't process your request automatically. A live agent has been notified and will assist you shortly."
+				"⚠️ We couldn't process your request automatically. A live agent has been notified and will assist you shortly.",
 			);
 			// Trigger Live Chat fallback
 			user.isLiveChatActive = true;
@@ -1134,7 +1157,7 @@ async function handleConciergeFlow(user, message) {
 		await user.save();
 		await sendTextMessage(
 			user.phoneNumber,
-			"Please enter the *Destination City/Airport*:"
+			"Please enter the *Destination City/Airport*:",
 		);
 	} else if (user.workflowState === STATES.CONCIERGE_FLIGHT_DESTINATION) {
 		user.workflowData.set("destination", choice);
@@ -1142,7 +1165,7 @@ async function handleConciergeFlow(user, message) {
 		await user.save();
 		await sendTextMessage(
 			user.phoneNumber,
-			"Please enter the *Departure Date* (YYYY-MM-DD):"
+			"Please enter the *Departure Date* (YYYY-MM-DD):",
 		);
 	} else if (user.workflowState === STATES.CONCIERGE_FLIGHT_DATE) {
 		user.workflowData.set("date", choice);
@@ -1163,7 +1186,7 @@ async function handleConciergeFlow(user, message) {
 		await sendInteractiveMessage(
 			user.phoneNumber,
 			"Select *Cabin Class*:",
-			classButtons
+			classButtons,
 		);
 	} else if (user.workflowState === STATES.CONCIERGE_FLIGHT_CLASS) {
 		const flightClass = choice.toLowerCase();
@@ -1175,7 +1198,7 @@ async function handleConciergeFlow(user, message) {
 
 		await sendTextMessage(
 			user.phoneNumber,
-			"Processing your flight request... ✈️"
+			"Processing your flight request... ✈️",
 		);
 
 		const bookingData = {
@@ -1199,13 +1222,13 @@ async function handleConciergeFlow(user, message) {
 				user.phoneNumber,
 				`✅ *Flight Request Received!*\n\nReference: ${booking.id.substring(
 					0,
-					8
-				)}\nRoute: ${origin} ➡️ ${destination}\n\nOur concierge team will contact you shortly with flight options.`
+					8,
+				)}\nRoute: ${origin} ➡️ ${destination}\n\nOur concierge team will contact you shortly with flight options.`,
 			);
 		} else {
 			await sendTextMessage(
 				user.phoneNumber,
-				"⚠️ We couldn't process your request automatically. A live agent has been notified."
+				"⚠️ We couldn't process your request automatically. A live agent has been notified.",
 			);
 			user.isLiveChatActive = true;
 			user.workflowState = STATES.PERSONAL_ASSISTANT;
@@ -1223,7 +1246,7 @@ async function handleConciergeFlow(user, message) {
 		if (isNaN(amount) || amount <= 0) {
 			await sendTextMessage(
 				user.phoneNumber,
-				"Please enter a valid amount (e.g. 50000)."
+				"Please enter a valid amount (e.g. 50000).",
 			);
 			return;
 		}
@@ -1233,7 +1256,7 @@ async function handleConciergeFlow(user, message) {
 		await user.save();
 		await sendTextMessage(
 			user.phoneNumber,
-			"Please provide a brief reason (Narration):"
+			"Please provide a brief reason (Narration):",
 		);
 	} else if (user.workflowState === STATES.CONCIERGE_FUND_NARRATION) {
 		user.workflowData.set("narration", choice);
@@ -1248,7 +1271,7 @@ async function handleConciergeFlow(user, message) {
 		await user.save();
 		await sendTextMessage(
 			user.phoneNumber,
-			"🔒 *Security Check*\n\nPlease enter the answer to your Security Question to authorize this request:"
+			"🔒 *Security Check*\n\nPlease enter the answer to your Security Question to authorize this request:",
 		);
 	} else if (user.workflowState === STATES.CONCIERGE_FUND_VERIFY) {
 		const securityAnswer = choice.trim();
@@ -1268,8 +1291,8 @@ async function handleConciergeFlow(user, message) {
 				await sendTextMessage(
 					user.phoneNumber,
 					`*Concierge Request Successful* ✅\n\nYour request for ₦${Number(
-						amount
-					).toLocaleString()} has been processed.\nReference: ${result.reference}`
+						amount,
+					).toLocaleString()} has been processed.\nReference: ${result.reference}`,
 				);
 			} else {
 				throw new Error("Transfer failed or invalid security answer");
@@ -1278,7 +1301,7 @@ async function handleConciergeFlow(user, message) {
 			logger.error("Error in concierge transfer", { error: error.message });
 			await sendTextMessage(
 				user.phoneNumber,
-				"Sorry, your request could not be completed. Please check your balance and security answer, then try again."
+				"Sorry, your request could not be completed. Please check your balance and security answer, then try again.",
 			);
 		}
 
@@ -1306,7 +1329,7 @@ async function handleReferralFlow(user, message) {
 
 	await sendTextMessage(
 		user.phoneNumber,
-		`*Referral Program* 🎁\n\nInvite friends to LuxePass and earn rewards!\n\n*Your Referral Code*: *${user.referralCode}*\n\nShare this code with your friends. When they sign up using your code, you'll both get exclusive perks!\n\nStart referring today! 🚀`
+		`*Referral Program* 🎁\n\nInvite friends to LuxePass and earn rewards!\n\n*Your Referral Code*: *${user.referralCode}*\n\nShare this code with your friends. When they sign up using your code, you'll both get exclusive perks!\n\nStart referring today! 🚀`,
 	);
 
 	// Return to menu automatically or offer options
@@ -1320,9 +1343,76 @@ async function handleWalletMenu(user, message) {
 
 	if (choice === "menu" || choice === "back" || choice === "main menu") {
 		user.workflowState = STATES.MAIN_MENU;
+		user.workflowData.delete("walletPendingAction");
 		await user.save();
 		await sendWelcomeMenu(user.phoneNumber, user.name);
 		return;
+	}
+
+	// Handle Security Verification Response
+	if (user.workflowState === STATES.WALLET_VERIFY_SECURITY) {
+		const securityAnswer = message.trim();
+		try {
+			const CORE_BACKEND_URL =
+				process.env.CORE_BACKEND_URL ||
+				"https://backend-luxepass.onrender.com/api/v1";
+
+			const response = await axios.post(
+				`${CORE_BACKEND_URL}/auth/verify-security-answer/inline`,
+				{
+					uniqueId: user.phoneNumber,
+					answer: securityAnswer,
+				},
+			);
+
+			if (response.data.verified) {
+				const pendingAction = user.workflowData.get("walletPendingAction");
+				user.workflowState = STATES.WALLET_MENU;
+				user.workflowData.delete("walletPendingAction");
+				await user.save();
+				return handleWalletMenu(user, pendingAction);
+			} else {
+				await sendTextMessage(
+					user.phoneNumber,
+					"Incorrect security answer. ❌\n\nPlease try again or type 'MENU' to return.",
+				);
+				return;
+			}
+		} catch (error) {
+			logger.error("Security verification failed", {
+				error: error.response?.data || error.message,
+			});
+			await sendTextMessage(
+				user.phoneNumber,
+				"Verification failed. Please try again later or type 'MENU' to return.",
+			);
+			return;
+		}
+	}
+
+	// Intercept balance/deposit for verification
+	const isBalanceRequest =
+		choice === "wallet_balance" || choice === "1" || choice.includes("balance");
+	const isDepositRequest =
+		choice === "wallet_deposit" || choice === "2" || choice.includes("deposit");
+
+	if (isBalanceRequest || isDepositRequest) {
+		try {
+			const securityInfo = await backendService.checkUserExists(user.phoneNumber);
+			if (securityInfo && securityInfo.securityQuestion) {
+				user.workflowState = STATES.WALLET_VERIFY_SECURITY;
+				user.workflowData.set("walletPendingAction", choice);
+				await user.save();
+				await sendTextMessage(
+					user.phoneNumber,
+					`🔐 *Security Verification*\n\nTo access your wallet, please answer your security question:\n\n*"${securityInfo.securityQuestion}"*`,
+				);
+				return;
+			}
+		} catch (error) {
+			logger.error("Error fetching security question", { error: error.message });
+			// If we can't fetch security question, maybe fall back to direct access or inform user
+		}
 	}
 
 	try {
@@ -1332,7 +1422,7 @@ async function handleWalletMenu(user, message) {
 		if (!wallet) {
 			await sendTextMessage(
 				user.phoneNumber,
-				"Sorry, your wallet details are currently unavailable. Please try again later."
+				"Sorry, your wallet details are currently unavailable. Please try again later.",
 			);
 			user.workflowState = STATES.MAIN_MENU;
 			await user.save();
@@ -1340,21 +1430,13 @@ async function handleWalletMenu(user, message) {
 			return;
 		}
 
-		if (
-			choice === "wallet_balance" ||
-			choice === "1" ||
-			choice.includes("balance")
-		) {
+		if (isBalanceRequest) {
 			// Check Balance linked to main backend
 			const balanceText = `*Your Balance* 💰\n\nYour current wallet balance is: *₦${Number(
-				wallet.balance
+				wallet.balance,
 			).toLocaleString()}*`;
 			await sendTextMessage(user.phoneNumber, balanceText);
-		} else if (
-			choice === "wallet_deposit" ||
-			choice === "2" ||
-			choice.includes("deposit")
-		) {
+		} else if (isDepositRequest) {
 			// Deposit linked to main backend (Account Details)
 			let depositText = `*Deposit Account Details* 📥\n\nPlease transfer to your virtual account to fund your LuxePass wallet:`;
 
@@ -1368,7 +1450,7 @@ async function handleWalletMenu(user, message) {
 		} else {
 			await sendTextMessage(
 				user.phoneNumber,
-				"Please select an option from the menu."
+				"Please select an option from the menu.",
 			);
 		}
 
@@ -1381,13 +1463,13 @@ async function handleWalletMenu(user, message) {
 		await sendInteractiveMessage(
 			user.phoneNumber,
 			"Is there anything else you need with your wallet?",
-			walletButtons
+			walletButtons,
 		);
 	} catch (error) {
 		logger.error("Error in handleWalletMenu", { error: error.message });
 		await sendTextMessage(
 			user.phoneNumber,
-			"An error occurred while processing your request. Returning to main menu..."
+			"An error occurred while processing your request. Returning to main menu...",
 		);
 		user.workflowState = STATES.MAIN_MENU;
 		await user.save();

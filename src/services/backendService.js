@@ -34,7 +34,7 @@ export async function checkUserExists(phone) {
 	try {
 		const normalizedPhone = normalizePhone(phone);
 		const response = await apiClient.get(
-			`/auth/security-question?userIdentifier=${normalizedPhone}`
+			`/auth/security-question?userIdentifier=${normalizedPhone}`,
 		);
 		if (response.data.success) {
 			return response.data.data;
@@ -63,6 +63,7 @@ export async function registerUser(userData) {
 			name: userData.name,
 			phone: normalizePhone(userData.phone),
 			email: userData.email,
+			referralCode: userData.referralCode,
 		});
 		if (response.data.success) {
 			return response.data.data.user;
