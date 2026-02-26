@@ -18,6 +18,7 @@ import conversationRoutes from "./src/routes/conversationRoutes.js";
 import paymentRoutes from "./src/routes/paymentRoutes.js";
 import liveChatRoutes from "./src/routes/liveChatRoutes.js";
 import referralRoutes from "./src/routes/referralRoutes.js";
+import userRoutes from "./src/routes/userRoutes.js";
 import { connectDB } from "./src/config/database.js";
 
 const app = express();
@@ -66,6 +67,7 @@ app.use("/api/conversations", conversationRoutes);
 app.use("/api/payment", paymentRoutes);
 app.use("/api/livechat", liveChatRoutes);
 app.use("/api/referrals", referralRoutes);
+app.use("/api/users", userRoutes);
 
 // 404 handler
 app.use(notFoundHandler);

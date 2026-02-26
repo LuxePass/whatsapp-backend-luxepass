@@ -56,6 +56,9 @@ const STATES = {
 	REFERRAL_MENU: "REFERRAL_MENU",
 	WALLET_MENU: "WALLET_MENU",
 	WALLET_VERIFY_SECURITY: "WALLET_VERIFY_SECURITY",
+	WALLET_ADD_BANK_NAME: "WALLET_ADD_BANK_NAME",
+	WALLET_ADD_ACCOUNT_NUMBER: "WALLET_ADD_ACCOUNT_NUMBER",
+	WALLET_ADD_ACCOUNT_NAME: "WALLET_ADD_ACCOUNT_NAME",
 };
 
 const PROPERTY_TYPES = [
@@ -563,6 +566,9 @@ async function processWorkflowState(user, message) {
 			break;
 		case STATES.WALLET_MENU:
 		case STATES.WALLET_VERIFY_SECURITY:
+		case STATES.WALLET_ADD_BANK_NAME:
+		case STATES.WALLET_ADD_ACCOUNT_NUMBER:
+		case STATES.WALLET_ADD_ACCOUNT_NAME:
 			await handleWalletMenu(user, choice);
 			break;
 		default:
@@ -1377,7 +1383,7 @@ async function handleWalletMenu(user, message, token = null) {
 				const pendingAction = user.workflowData.get("walletPendingAction");
 				user.workflowState = STATES.WALLET_MENU;
 				user.workflowData.delete("walletPendingAction");
-				user.workflowData.set("verificationToken", verificationToken); // Optional: Store if needed for multiple actions
+				user.workflowData.set("verificationToken", verificationToken);
 				await user.save();
 				return handleWalletMenu(user, pendingAction, verificationToken);
 			} else {
@@ -1397,6 +1403,76 @@ async function handleWalletMenu(user, message, token = null) {
 			);
 			return;
 		}
+	}
+
+	// Handle Add Bank Account Flow
+	if (user.workflowState === STATES.WALLET_ADD_BANK_NAME) {
+		user.workflowData.set("newBankName", message.trim());
+		user.workflowState = STATES.WALLET_ADD_ACCOUNT_NUMBER;
+		await user.save();
+		await sendTextMessage(
+			user.phoneNumber,
+			"Great! Now enter your *Account Number*:",
+		);
+		return;
+	}
+
+	if (user.workflowState === STATES.WALLET_ADD_ACCOUNT_NUMBER) {
+		const accountNumber = message.trim();
+		if (accountNumber.length < 10) {
+			await sendTextMessage(
+				user.phoneNumber,
+				"Please enter a valid 10-digit account number.",
+			);
+			return;
+		}
+		user.workflowData.set("newAccountNumber", accountNumber);
+		user.workflowState = STATES.WALLET_ADD_ACCOUNT_NAME;
+		await user.save();
+		await sendTextMessage(
+			user.phoneNumber,
+			"Almost there! Finally, enter the *Account Name* (exactly as it appears on your bank account):",
+		);
+		return;
+	}
+
+	if (user.workflowState === STATES.WALLET_ADD_ACCOUNT_NAME) {
+		const accountName = message.trim();
+		const bankName = user.workflowData.get("newBankName");
+		const accountNumber = user.workflowData.get("newAccountNumber");
+
+		if (!user.savedBankAccounts) {
+			user.savedBankAccounts = [];
+		}
+
+		user.savedBankAccounts.push({
+			bankName,
+			accountNumber,
+			accountName,
+		});
+
+		user.workflowData.delete("newBankName");
+		user.workflowData.delete("newAccountNumber");
+		user.workflowState = STATES.WALLET_MENU;
+		await user.save();
+
+		await sendTextMessage(
+			user.phoneNumber,
+			`Success! ✅ Your account details have been saved:\n\n🏦 *Bank*: ${bankName}\n🔢 *Account*: ${accountNumber}\n👤 *Name*: ${accountName}`,
+		);
+
+		const walletButtons = [
+			{ id: "wallet_balance", title: "💰 Balance" },
+			{ id: "wallet_deposit", title: "📥 Deposit" },
+			{ id: "wallet_add_account", title: "🏦 Add Account" },
+			{ id: "menu", title: "⬅️ Back" },
+		];
+		await sendInteractiveMessage(
+			user.phoneNumber,
+			"What would you like to do next?",
+			walletButtons,
+		);
+		return;
 	}
 
 	// Intercept balance/deposit for verification
@@ -1420,8 +1496,17 @@ async function handleWalletMenu(user, message, token = null) {
 			}
 		} catch (error) {
 			logger.error("Error fetching security question", { error: error.message });
-			// If we can't fetch security question, maybe fall back to direct access or inform user
 		}
+	}
+
+	if (choice === "wallet_add_account" || choice === "3") {
+		user.workflowState = STATES.WALLET_ADD_BANK_NAME;
+		await user.save();
+		await sendTextMessage(
+			user.phoneNumber,
+			"Please enter your *Bank Name* (e.g. Zenith Bank, GTBank):",
+		);
+		return;
 	}
 
 	try {
@@ -1472,6 +1557,7 @@ async function handleWalletMenu(user, message, token = null) {
 		const walletButtons = [
 			{ id: "wallet_balance", title: "💰 Balance" },
 			{ id: "wallet_deposit", title: "📥 Deposit" },
+			{ id: "wallet_add_account", title: "🏦 Add Account" },
 			{ id: "menu", title: "⬅️ Back" },
 		];
 		await sendInteractiveMessage(

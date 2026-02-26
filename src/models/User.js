@@ -58,10 +58,18 @@ const userSchema = new mongoose.Schema(
 			type: Number,
 			default: 0,
 		},
+		savedBankAccounts: [
+			{
+				bankName: String,
+				accountNumber: String,
+				accountName: String,
+				createdAt: { type: Date, default: Date.now },
+			},
+		],
 	},
 	{
 		timestamps: true,
-	}
+	},
 );
 
 export default mongoose.model("User", userSchema);
