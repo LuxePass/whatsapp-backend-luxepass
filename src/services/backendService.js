@@ -157,6 +157,30 @@ export async function createBooking(bookingData) {
 }
 
 /**
+ * Verify security answer to get a token
+ * @param {string} identifier - userId or uniqueId/phone
+ * @param {string} answer - the security answer
+ * @returns {Promise<string|null>} token
+ */
+export async function verifySecurityAnswer(identifier, answer) {
+	try {
+		const response = await apiClient.post("/auth/verify-security-answer", {
+			uniqueId: identifier,
+			answer: answer,
+		});
+		if (response.data.success) {
+			return response.data.data.token;
+		}
+		return null;
+	} catch (error) {
+		logger.error("Error verifying security answer", {
+			error: error.response?.data?.error?.message || error.message,
+		});
+		return null;
+	}
+}
+
+/**
  * Get wallet for a user by identifier
  * @param {string} identifier - userId or uniqueId
  * @param {string} token - Optional security verification token
@@ -289,4 +313,5 @@ export default {
 	normalizePhone,
 	getAllPAs,
 	assignUserToPA,
+	verifySecurityAnswer,
 };

@@ -1381,8 +1381,39 @@ export async function handleWalletMenu(user, message, token = null) {
 		return;
 	}
 
-	// ... (rest of security verification block remains the same, will be handled by replace above if needed, but wait)
-	// Actually I'm replacing the whole function head to add 'token' param.
+	if (choice === "wallet_menu") {
+		const walletSections = [
+			{
+				title: "Wallet Options",
+				rows: [
+					{
+						id: "wallet_balance",
+						title: "💰 Balance",
+						description: "Check your current balance",
+					},
+					{
+						id: "wallet_deposit",
+						title: "📥 Deposit",
+						description: "View fund account details",
+					},
+					{
+						id: "wallet_manage_accounts",
+						title: "🏦 Manage Accounts",
+						description: "View or delete saved bank accounts",
+					},
+					{ id: "menu", title: "⬅️ Back", description: "Return to main menu" },
+				],
+			},
+		];
+		await sendListMessage(
+			user.phoneNumber,
+			"*LuxePass Wallet* 💳\n\nWhat would you like to do next?",
+			"Select Option",
+			walletSections,
+			"Wallet Services 💰",
+		);
+		return;
+	}
 
 	// Handle Security Verification Response
 	if (user.workflowState === STATES.WALLET_VERIFY_SECURITY) {
@@ -1391,80 +1422,97 @@ export async function handleWalletMenu(user, message, token = null) {
 
 		// The user clicks balance, we ask them their security question answer,
 		// they provide it then we call the wallet/me endpoint on the main backend.
-		// (We dont verify locally/separately. we pass it into the header)
-		try {
-			// Fetch fresh wallet details from main backend passing the answer in header
-			const wallet = await backendService.getWallet("me", null, securityAnswer);
+		const coreUserId = user.workflowData.get("coreUserId") || user.phoneNumber;
 
-			if (!wallet) {
-				await sendTextMessage(
+		try {
+			// First, verify the security answer to get a token
+			const token = await backendService.verifySecurityAnswer(
+				user.phoneNumber,
+				securityAnswer,
+			);
+
+			if (token) {
+				// Successful verification, save token temporarily if needed
+				// Now get wallet using the token
+				const wallet = await backendService.getWallet(coreUserId, token);
+
+				if (!wallet) {
+					await sendTextMessage(
+						user.phoneNumber,
+						"Wallet unavailable (Endpoint: /wallet/me). ❌\n\nPlease try again or type 'MENU' to return.",
+					);
+					return;
+				}
+
+				// If success, we have the wallet data. Proceed to show the requested information.
+				user.workflowState = STATES.WALLET_MENU;
+				user.workflowData.delete("walletPendingAction");
+				await user.save();
+
+				// Now sending the requested info since verification succeeded
+				if (
+					pendingAction === "wallet_balance" ||
+					(pendingAction && pendingAction.includes("balance"))
+				) {
+					const balanceText = `*Your Balance* 💰\n\nYour current wallet balance is: *₦${Number(
+						wallet.balance,
+					).toLocaleString()}*`;
+					await sendTextMessage(user.phoneNumber, balanceText);
+				} else if (
+					pendingAction === "wallet_deposit" ||
+					(pendingAction && pendingAction.includes("deposit"))
+				) {
+					let depositText = `*Deposit Account Details* 📥\n\nPlease transfer to your virtual account to fund your LuxePass wallet:`;
+					const vAccount = wallet.virtualAccounts?.[0] || wallet.virtualAccount;
+
+					if (vAccount) {
+						depositText += `\n\n🏦 *Bank*: ${vAccount.bankName}\n🔢 *Account Number*: ${vAccount.accountNumber}\n👤 *Account Name*: ${vAccount.accountName}\n\n_Funds will be credited instantly upon confirmation._`;
+					} else {
+						depositText =
+							"We are currently setting up your virtual account. Please contact support or check back in a few minutes for deposit instructions.";
+					}
+					await sendTextMessage(user.phoneNumber, depositText);
+				}
+
+				// Show wallet menu again using the list message
+				const walletSections = [
+					{
+						title: "Wallet Options",
+						rows: [
+							{
+								id: "wallet_balance",
+								title: "💰 Balance",
+								description: "Check your current balance",
+							},
+							{
+								id: "wallet_deposit",
+								title: "📥 Deposit",
+								description: "View fund account details",
+							},
+							{
+								id: "wallet_manage_accounts",
+								title: "🏦 Manage Accounts",
+								description: "View or delete saved bank accounts",
+							},
+							{ id: "menu", title: "⬅️ Back", description: "Return to main menu" },
+						],
+					},
+				];
+				await sendListMessage(
 					user.phoneNumber,
-					"Incorrect security answer or wallet unavailable (Endpoint: /wallet/me). ❌\n\nPlease try again or type 'MENU' to return.",
+					"What would you like to do next?",
+					"Select Option",
+					walletSections,
+					"Wallet Services 💰",
 				);
 				return;
+			} else {
+				// Failed authentication or token error
+				await sendTextMessage(
+					user.phoneNumber,
+					"Incorrect security answer. ❌\n\nPlease try again or type 'MENU' to return.",
+				);
 			}
-
-			// If success, we have the wallet data. Proceed to show the requested information.
-			user.workflowState = STATES.WALLET_MENU;
-			user.workflowData.delete("walletPendingAction");
-			await user.save();
-
-			if (
-				pendingAction === "wallet_balance" ||
-				(pendingAction && pendingAction.includes("balance"))
-			) {
-				const balanceText = `*Your Balance* 💰\n\nYour current wallet balance is: *₦${Number(
-					wallet.balance,
-				).toLocaleString()}*`;
-				await sendTextMessage(user.phoneNumber, balanceText);
-			} else if (
-				pendingAction === "wallet_deposit" ||
-				(pendingAction && pendingAction.includes("deposit"))
-			) {
-				let depositText = `*Deposit Account Details* 📥\n\nPlease transfer to your virtual account to fund your LuxePass wallet:`;
-				const vAccount = wallet.virtualAccounts?.[0] || wallet.virtualAccount;
-
-				if (vAccount) {
-					depositText += `\n\n🏦 *Bank*: ${vAccount.bankName}\n🔢 *Account Number*: ${vAccount.accountNumber}\n👤 *Account Name*: ${vAccount.accountName}\n\n_Funds will be credited instantly upon confirmation._`;
-				} else {
-					depositText =
-						"We are currently setting up your virtual account. Please contact support or check back in a few minutes for deposit instructions.";
-				}
-				await sendTextMessage(user.phoneNumber, depositText);
-			}
-
-			// Show wallet menu again using the list message
-			const walletSections = [
-				{
-					title: "Wallet Options",
-					rows: [
-						{
-							id: "wallet_balance",
-							title: "💰 Balance",
-							description: "Check your current balance",
-						},
-						{
-							id: "wallet_deposit",
-							title: "📥 Deposit",
-							description: "View fund account details",
-						},
-						{
-							id: "wallet_manage_accounts",
-							title: "🏦 Manage Accounts",
-							description: "View or delete saved bank accounts",
-						},
-						{ id: "menu", title: "⬅️ Back", description: "Return to main menu" },
-					],
-				},
-			];
-			await sendListMessage(
-				user.phoneNumber,
-				"What would you like to do next?",
-				"Select Option",
-				walletSections,
-				"Wallet Services 💰",
-			);
-			return;
 		} catch (error) {
 			logger.error("Wallet access failed", {
 				error: error.response?.data || error.message,
@@ -1563,7 +1611,6 @@ export async function handleWalletMenu(user, message, token = null) {
 			walletSections,
 			"Wallet Services 💰",
 		);
-		await handleWalletMenu(user, "wallet_manage_accounts");
 		return;
 	}
 

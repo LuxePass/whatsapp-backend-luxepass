@@ -4,6 +4,7 @@ import { jest } from "@jest/globals";
 const mockSendListMessage = jest.fn().mockResolvedValue({ success: true });
 const mockSendTextMessage = jest.fn().mockResolvedValue({ success: true });
 const mockGetWallet = jest.fn();
+const mockVerifySecurityAnswer = jest.fn();
 
 jest.unstable_mockModule("../src/services/whatsappService.js", () => ({
 	sendTextMessage: mockSendTextMessage,
@@ -13,8 +14,14 @@ jest.unstable_mockModule("../src/services/whatsappService.js", () => ({
 }));
 
 jest.unstable_mockModule("../src/services/backendService.js", () => ({
+	default: {
+		getWallet: mockGetWallet,
+		checkUserExists: jest.fn(),
+		verifySecurityAnswer: mockVerifySecurityAnswer,
+	},
 	getWallet: mockGetWallet,
 	checkUserExists: jest.fn(),
+	verifySecurityAnswer: mockVerifySecurityAnswer,
 }));
 
 jest.unstable_mockModule("../src/models/User.js", () => ({
@@ -36,7 +43,7 @@ describe("Wallet Fixes Verification", () => {
 			phoneNumber: "1234567890",
 			name: "Test User",
 			workflowState: "WALLET_MENU",
-			workflowData: new Map(),
+			workflowData: new Map([["coreUserId", "core-123"]]),
 			save: jest.fn().mockResolvedValue(true),
 		};
 	});
@@ -53,6 +60,7 @@ describe("Wallet Fixes Verification", () => {
 					rows: expect.arrayContaining([
 						expect.objectContaining({ id: "wallet_balance" }),
 						expect.objectContaining({ id: "wallet_deposit" }),
+						expect.objectContaining({ id: "wallet_manage_accounts" }),
 					]),
 				}),
 			]),
@@ -60,39 +68,47 @@ describe("Wallet Fixes Verification", () => {
 		);
 	});
 
-	test("should handle security verification and call getWallet with header", async () => {
+	test("should request wallet balance using token after successful security verification", async () => {
 		mockUser.workflowState = "WALLET_VERIFY_SECURITY";
 		mockUser.workflowData.set("walletPendingAction", "wallet_balance");
 
-		const mockWallet = { balance: "5000" };
-		mockGetWallet.mockResolvedValue(mockWallet);
+		mockVerifySecurityAnswer.mockResolvedValue("mock-token-abc");
+		mockGetWallet.mockResolvedValue({
+			balance: 100000,
+			virtualAccount: null,
+		});
 
-		await handleWalletMenu(mockUser, "my_secret_answer");
+		await handleWalletMenu(mockUser, "Fluffy");
 
-		// Check backend call
-		expect(mockGetWallet).toHaveBeenCalledWith("me", null, "my_secret_answer");
-
-		// Check text message
+		expect(mockVerifySecurityAnswer).toHaveBeenCalledWith("1234567890", "Fluffy");
+		expect(mockGetWallet).toHaveBeenCalledWith("core-123", "mock-token-abc");
+		expect(mockUser.workflowState).toBe("WALLET_MENU");
 		expect(mockSendTextMessage).toHaveBeenCalledWith(
 			"1234567890",
-			expect.stringContaining("5,000"),
+			expect.stringContaining("100,000"),
 		);
 
 		// Check state reset
 		expect(mockUser.workflowState).toBe("WALLET_MENU");
 	});
-
-	test("should handle wallet access error and show endpoint in message", async () => {
+	test("should handle incorrect security answer or missing token", async () => {
 		mockUser.workflowState = "WALLET_VERIFY_SECURITY";
 		mockUser.workflowData.set("walletPendingAction", "wallet_balance");
 
-		mockGetWallet.mockResolvedValue(null);
+		// Simulate token verification failure (returns null)
+		mockVerifySecurityAnswer.mockResolvedValue(null);
+		mockGetWallet.mockResolvedValue(null); // Shouldn't be called
 
 		await handleWalletMenu(mockUser, "wrong_answer");
 
+		expect(mockVerifySecurityAnswer).toHaveBeenCalledWith(
+			"1234567890",
+			"wrong_answer",
+		);
+		expect(mockGetWallet).not.toHaveBeenCalled();
 		expect(mockSendTextMessage).toHaveBeenCalledWith(
 			"1234567890",
-			expect.stringContaining("/wallet/me"),
+			expect.stringContaining("Incorrect security answer"),
 		);
 	});
 });
