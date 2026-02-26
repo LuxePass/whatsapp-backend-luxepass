@@ -59,6 +59,8 @@ const STATES = {
 	WALLET_ADD_BANK_NAME: "WALLET_ADD_BANK_NAME",
 	WALLET_ADD_ACCOUNT_NUMBER: "WALLET_ADD_ACCOUNT_NUMBER",
 	WALLET_ADD_ACCOUNT_NAME: "WALLET_ADD_ACCOUNT_NAME",
+	WALLET_MANAGE_ACCOUNTS: "WALLET_MANAGE_ACCOUNTS",
+	WALLET_DELETE_ACCOUNT_SELECT: "WALLET_DELETE_ACCOUNT_SELECT",
 };
 
 const PROPERTY_TYPES = [
@@ -1407,12 +1409,18 @@ export async function handleWalletMenu(user, message, token = null) {
 			user.workflowData.delete("walletPendingAction");
 			await user.save();
 
-			if (pendingAction === "wallet_balance") {
+			if (
+				pendingAction === "wallet_balance" ||
+				(pendingAction && pendingAction.includes("balance"))
+			) {
 				const balanceText = `*Your Balance* 💰\n\nYour current wallet balance is: *₦${Number(
 					wallet.balance,
 				).toLocaleString()}*`;
 				await sendTextMessage(user.phoneNumber, balanceText);
-			} else if (pendingAction === "wallet_deposit") {
+			} else if (
+				pendingAction === "wallet_deposit" ||
+				(pendingAction && pendingAction.includes("deposit"))
+			) {
 				let depositText = `*Deposit Account Details* 📥\n\nPlease transfer to your virtual account to fund your LuxePass wallet:`;
 				const vAccount = wallet.virtualAccounts?.[0] || wallet.virtualAccount;
 
@@ -1441,9 +1449,9 @@ export async function handleWalletMenu(user, message, token = null) {
 							description: "View fund account details",
 						},
 						{
-							id: "wallet_add_account",
-							title: "🏦 Add Account",
-							description: "Save bank details for withdrawal",
+							id: "wallet_manage_accounts",
+							title: "🏦 Manage Accounts",
+							description: "View or delete saved bank accounts",
 						},
 						{ id: "menu", title: "⬅️ Back", description: "Return to main menu" },
 					],
@@ -1555,6 +1563,7 @@ export async function handleWalletMenu(user, message, token = null) {
 			walletSections,
 			"Wallet Services 💰",
 		);
+		await handleWalletMenu(user, "wallet_manage_accounts");
 		return;
 	}
 
@@ -1565,20 +1574,130 @@ export async function handleWalletMenu(user, message, token = null) {
 		choice === "wallet_deposit" || choice === "2" || choice.includes("deposit");
 
 	if (isBalanceRequest || isDepositRequest) {
+		user.workflowState = STATES.WALLET_VERIFY_SECURITY;
+		user.workflowData.set("walletPendingAction", choice);
+		await user.save();
+
+		let promptMessage =
+			"🔐 *Security Verification*\n\nTo access your wallet, please answer your security question:";
 		try {
 			const securityInfo = await backendService.checkUserExists(user.phoneNumber);
 			if (securityInfo && securityInfo.securityQuestion) {
-				user.workflowState = STATES.WALLET_VERIFY_SECURITY;
-				user.workflowData.set("walletPendingAction", choice);
-				await user.save();
-				await sendTextMessage(
-					user.phoneNumber,
-					`🔐 *Security Verification*\n\nTo access your wallet, please answer your security question:\n\n*"${securityInfo.securityQuestion}"*`,
-				);
-				return;
+				promptMessage += `\n\n*"${securityInfo.securityQuestion}"*`;
+			} else {
+				promptMessage +=
+					"\n\n(Please provide the security answer you set during registration)";
 			}
 		} catch (error) {
 			logger.error("Error fetching security question", { error: error.message });
+			promptMessage +=
+				"\n\n(Please provide the security answer you set during registration)";
+		}
+
+		await sendTextMessage(user.phoneNumber, promptMessage);
+		return;
+	}
+
+	if (choice === "wallet_manage_accounts") {
+		const accounts = user.savedBankAccounts || [];
+
+		if (accounts.length === 0) {
+			const manageButtons = [
+				{ id: "wallet_add_account", title: "🏦 Add Account" },
+				{ id: "wallet_menu", title: "⬅️ Back" },
+			];
+			await sendInteractiveMessage(
+				user.phoneNumber,
+				"*Manage Bank Accounts* 🏦\n\nYou haven't saved any bank accounts yet.",
+				manageButtons,
+			);
+			return;
+		}
+
+		let accountsText = "*Your Saved Bank Accounts* 🏦\n\n";
+		accounts.forEach((acc, index) => {
+			accountsText += `*${index + 1}.* ${acc.bankName} - ${acc.accountNumber} (${acc.accountName})\n`;
+		});
+
+		const manageButtons = [
+			{ id: "wallet_add_account", title: "➕ Add New" },
+			{ id: "wallet_delete_account", title: "🗑️ Delete Account" },
+			{ id: "wallet_menu", title: "⬅️ Back" },
+		];
+
+		user.workflowState = STATES.WALLET_MANAGE_ACCOUNTS;
+		await user.save();
+
+		await sendInteractiveMessage(user.phoneNumber, accountsText, manageButtons);
+		return;
+	}
+
+	if (user.workflowState === STATES.WALLET_MANAGE_ACCOUNTS) {
+		if (choice === "wallet_add_account") {
+			user.workflowState = STATES.WALLET_ADD_BANK_NAME;
+			await user.save();
+			await sendTextMessage(
+				user.phoneNumber,
+				"Please enter your *Bank Name* (e.g. Zenith Bank, GTBank):",
+			);
+			return;
+		} else if (choice === "wallet_delete_account") {
+			const accounts = user.savedBankAccounts || [];
+			if (accounts.length === 0) return;
+
+			// If more than 3 accounts, use list message. If not, buttons (though delete needs identification)
+			// Better to always use list message for selection or ask for a number.
+			// Let's use a list message for deletion selection.
+
+			const rows = accounts.map((acc, index) => ({
+				id: `delete_acc_${index}`,
+				title: `${acc.bankName}`,
+				description: `${acc.accountNumber} - ${acc.accountName}`,
+			}));
+
+			const sections = [{ title: "Select Account to Delete", rows }];
+
+			user.workflowState = STATES.WALLET_DELETE_ACCOUNT_SELECT;
+			await user.save();
+
+			await sendListMessage(
+				user.phoneNumber,
+				"Which account would you like to delete?",
+				"Select Account",
+				sections,
+				"Delete Account 🗑️",
+			);
+			return;
+		} else if (choice === "wallet_menu") {
+			user.workflowState = STATES.WALLET_MENU;
+			await user.save();
+			// Re-send wallet menu logic (omitted for brevity in replace, but should ideally be called)
+			// Actually choice WALLET_MENU will trigger the menu anyway in next loop or we can just send it.
+			await handleWalletMenu(user, "wallet_menu");
+			return;
+		}
+	}
+
+	if (user.workflowState === STATES.WALLET_DELETE_ACCOUNT_SELECT) {
+		if (choice.startsWith("delete_acc_")) {
+			const index = parseInt(choice.replace("delete_acc_", ""));
+			const accounts = user.savedBankAccounts || [];
+
+			if (index >= 0 && index < accounts.length) {
+				const deleted = accounts.splice(index, 1)[0];
+				user.savedBankAccounts = accounts;
+				user.workflowState = STATES.WALLET_MANAGE_ACCOUNTS;
+				await user.save();
+
+				await sendTextMessage(
+					user.phoneNumber,
+					`Successfully deleted account: ${deleted.bankName} (${deleted.accountNumber}) ✅`,
+				);
+
+				// Show manage menu again
+				await handleWalletMenu(user, "wallet_manage_accounts");
+				return;
+			}
 		}
 	}
 
