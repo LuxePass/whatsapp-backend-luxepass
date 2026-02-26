@@ -686,21 +686,40 @@ async function handleMainMenu(user, message) {
 	} else if (choice === "menu" || choice === "main menu") {
 		await sendWelcomeMenu(user.phoneNumber, user.name);
 	} else if (choice === "wallet_menu" || choice === "3") {
-		// Wallet sub-menu logic
-		const walletButtons = [
-			{ id: "wallet_balance", title: "💰 Balance" },
-			{ id: "wallet_deposit", title: "📥 Deposit" },
-			{ id: "wallet_add_account", title: "🏦 Add Account" },
-			{ id: "menu", title: "⬅️ Back" },
+		// Wallet sub-menu logic using List Message to avoid 3 button limit
+		const walletSections = [
+			{
+				title: "Wallet Options",
+				rows: [
+					{
+						id: "wallet_balance",
+						title: "💰 Balance",
+						description: "Check your current balance",
+					},
+					{
+						id: "wallet_deposit",
+						title: "📥 Deposit",
+						description: "View fund account details",
+					},
+					{
+						id: "wallet_add_account",
+						title: "🏦 Add Account",
+						description: "Save bank details for withdrawal",
+					},
+					{ id: "menu", title: "⬅️ Back", description: "Return to main menu" },
+				],
+			},
 		];
 
 		user.workflowState = STATES.WALLET_MENU;
 		await user.save();
 
-		await sendInteractiveMessage(
+		await sendListMessage(
 			user.phoneNumber,
 			"*LuxePass Wallet* 💳\n\nHow can we help you today?",
-			walletButtons,
+			"Select Option",
+			walletSections,
+			"Wallet Services 💰",
 		);
 	} else if (choice === "referral_program") {
 		user.workflowState = STATES.REFERRAL_MENU;
@@ -1345,7 +1364,7 @@ async function handleReferralFlow(user, message) {
 	await sendWelcomeMenu(user.phoneNumber, user.name);
 }
 
-async function handleWalletMenu(user, message, token = null) {
+export async function handleWalletMenu(user, message, token = null) {
 	const choice = message.trim().toLowerCase();
 
 	// Use stored token if not provided (optional optimization)
@@ -1366,41 +1385,85 @@ async function handleWalletMenu(user, message, token = null) {
 	// Handle Security Verification Response
 	if (user.workflowState === STATES.WALLET_VERIFY_SECURITY) {
 		const securityAnswer = message.trim();
+		const pendingAction = user.workflowData.get("walletPendingAction");
+
+		// The user clicks balance, we ask them their security question answer,
+		// they provide it then we call the wallet/me endpoint on the main backend.
+		// (We dont verify locally/separately. we pass it into the header)
 		try {
-			const CORE_BACKEND_URL =
-				process.env.CORE_BACKEND_URL ||
-				"https://backend-luxepass.onrender.com/api/v1";
+			// Fetch fresh wallet details from main backend passing the answer in header
+			const wallet = await backendService.getWallet("me", null, securityAnswer);
 
-			const response = await axios.post(
-				`${CORE_BACKEND_URL}/auth/verify-security-answer`,
-				{
-					uniqueId: user.phoneNumber,
-					answer: securityAnswer,
-				},
-			);
-
-			if (response.data.success && response.data.data.token) {
-				const verificationToken = response.data.data.token;
-				const pendingAction = user.workflowData.get("walletPendingAction");
-				user.workflowState = STATES.WALLET_MENU;
-				user.workflowData.delete("walletPendingAction");
-				user.workflowData.set("verificationToken", verificationToken);
-				await user.save();
-				return handleWalletMenu(user, pendingAction, verificationToken);
-			} else {
+			if (!wallet) {
 				await sendTextMessage(
 					user.phoneNumber,
-					"Incorrect security answer. ❌\n\nPlease try again or type 'MENU' to return.",
+					"Incorrect security answer or wallet unavailable. ❌\n\nPlease try again or type 'MENU' to return.",
 				);
 				return;
 			}
+
+			// If success, we have the wallet data. Proceed to show the requested information.
+			user.workflowState = STATES.WALLET_MENU;
+			user.workflowData.delete("walletPendingAction");
+			await user.save();
+
+			if (pendingAction === "wallet_balance") {
+				const balanceText = `*Your Balance* 💰\n\nYour current wallet balance is: *₦${Number(
+					wallet.balance,
+				).toLocaleString()}*`;
+				await sendTextMessage(user.phoneNumber, balanceText);
+			} else if (pendingAction === "wallet_deposit") {
+				let depositText = `*Deposit Account Details* 📥\n\nPlease transfer to your virtual account to fund your LuxePass wallet:`;
+				const vAccount = wallet.virtualAccounts?.[0] || wallet.virtualAccount;
+
+				if (vAccount) {
+					depositText += `\n\n🏦 *Bank*: ${vAccount.bankName}\n🔢 *Account Number*: ${vAccount.accountNumber}\n👤 *Account Name*: ${vAccount.accountName}\n\n_Funds will be credited instantly upon confirmation._`;
+				} else {
+					depositText =
+						"We are currently setting up your virtual account. Please contact support or check back in a few minutes for deposit instructions.";
+				}
+				await sendTextMessage(user.phoneNumber, depositText);
+			}
+
+			// Show wallet menu again using the list message
+			const walletSections = [
+				{
+					title: "Wallet Options",
+					rows: [
+						{
+							id: "wallet_balance",
+							title: "💰 Balance",
+							description: "Check your current balance",
+						},
+						{
+							id: "wallet_deposit",
+							title: "📥 Deposit",
+							description: "View fund account details",
+						},
+						{
+							id: "wallet_add_account",
+							title: "🏦 Add Account",
+							description: "Save bank details for withdrawal",
+						},
+						{ id: "menu", title: "⬅️ Back", description: "Return to main menu" },
+					],
+				},
+			];
+			await sendListMessage(
+				user.phoneNumber,
+				"What would you like to do next?",
+				"Select Option",
+				walletSections,
+				"Wallet Services 💰",
+			);
+			return;
 		} catch (error) {
-			logger.error("Security verification failed", {
+			logger.error("Wallet access failed", {
 				error: error.response?.data || error.message,
 			});
 			await sendTextMessage(
 				user.phoneNumber,
-				"Verification failed. Please try again later or type 'MENU' to return.",
+				"An error occurred while accessing your wallet. Please try again or type 'MENU' to return.",
 			);
 			return;
 		}
@@ -1462,16 +1525,35 @@ async function handleWalletMenu(user, message, token = null) {
 			`Success! ✅ Your account details have been saved:\n\n🏦 *Bank*: ${bankName}\n🔢 *Account*: ${accountNumber}\n👤 *Name*: ${accountName}`,
 		);
 
-		const walletButtons = [
-			{ id: "wallet_balance", title: "💰 Balance" },
-			{ id: "wallet_deposit", title: "📥 Deposit" },
-			{ id: "wallet_add_account", title: "🏦 Add Account" },
-			{ id: "menu", title: "⬅️ Back" },
+		const walletSections = [
+			{
+				title: "Wallet Options",
+				rows: [
+					{
+						id: "wallet_balance",
+						title: "💰 Balance",
+						description: "Check your current balance",
+					},
+					{
+						id: "wallet_deposit",
+						title: "📥 Deposit",
+						description: "View fund account details",
+					},
+					{
+						id: "wallet_add_account",
+						title: "🏦 Add Account",
+						description: "Save bank details for withdrawal",
+					},
+					{ id: "menu", title: "⬅️ Back", description: "Return to main menu" },
+				],
+			},
 		];
-		await sendInteractiveMessage(
+		await sendListMessage(
 			user.phoneNumber,
 			"What would you like to do next?",
-			walletButtons,
+			"Select Option",
+			walletSections,
+			"Wallet Services 💰",
 		);
 		return;
 	}
@@ -1510,67 +1592,7 @@ async function handleWalletMenu(user, message, token = null) {
 		return;
 	}
 
-	try {
-		// Fetch fresh wallet details from main backend
-		// If we have a verification token, use /wallet/me as per flow requirement
-		const wallet = await backendService.getWallet(
-			verificationToken ? "me" : user.phoneNumber,
-			verificationToken,
-		);
-
-		if (!wallet) {
-			await sendTextMessage(
-				user.phoneNumber,
-				"Sorry, your wallet details are currently unavailable. Please try again later.",
-			);
-			user.workflowState = STATES.MAIN_MENU;
-			await user.save();
-			await sendWelcomeMenu(user.phoneNumber, user.name);
-			return;
-		}
-
-		if (isBalanceRequest) {
-			// Check Balance linked to main backend
-			const balanceText = `*Your Balance* 💰\n\nYour current wallet balance is: *₦${Number(
-				wallet.balance,
-			).toLocaleString()}*`;
-			await sendTextMessage(user.phoneNumber, balanceText);
-		} else if (isDepositRequest) {
-			// Deposit linked to main backend (Account Details)
-			let depositText = `*Deposit Account Details* 📥\n\nPlease transfer to your virtual account to fund your LuxePass wallet:`;
-
-			const vAccount = wallet.virtualAccounts?.[0] || wallet.virtualAccount;
-
-			if (vAccount) {
-				depositText += `\n\n🏦 *Bank*: ${vAccount.bankName}\n🔢 *Account Number*: ${vAccount.accountNumber}\n👤 *Account Name*: ${vAccount.accountName}\n\n_Funds will be credited instantly upon confirmation._`;
-			} else {
-				depositText =
-					"We are currently setting up your virtual account. Please contact support or check back in a few minutes for deposit instructions.";
-			}
-			await sendTextMessage(user.phoneNumber, depositText);
-		}
-
-		// Show wallet menu again with all options
-		const walletButtons = [
-			{ id: "wallet_balance", title: "💰 Balance" },
-			{ id: "wallet_deposit", title: "📥 Deposit" },
-			{ id: "wallet_add_account", title: "🏦 Add Account" },
-			{ id: "menu", title: "⬅️ Back" },
-		];
-		await sendInteractiveMessage(
-			user.phoneNumber,
-			"What would you like to do next?",
-			walletButtons,
-		);
-		return;
-	} catch (error) {
-		logger.error("Error in handleWalletMenu", { error: error.message });
-		await sendTextMessage(
-			user.phoneNumber,
-			"An error occurred while processing your request. Returning to main menu...",
-		);
-		user.workflowState = STATES.MAIN_MENU;
-		await user.save();
-		await sendWelcomeMenu(user.phoneNumber, user.name);
-	}
+	// These cases are now handled above in the security verification response block
+	// after the user provides their security answer.
+	return;
 }

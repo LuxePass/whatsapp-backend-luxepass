@@ -160,13 +160,21 @@ export async function createBooking(bookingData) {
  * Get wallet for a user by identifier
  * @param {string} identifier - userId or uniqueId
  * @param {string} token - Optional security verification token
+ * @param {string} securityAnswer - Optional security answer to pass in header
  * @returns {Promise<Object|null>}
  */
-export async function getWallet(identifier, token = null) {
+export async function getWallet(
+	identifier,
+	token = null,
+	securityAnswer = null,
+) {
 	try {
 		const headers = {};
 		if (token) {
 			headers["X-Security-Verification-Token"] = token;
+		}
+		if (securityAnswer) {
+			headers["X-Security-Answer"] = securityAnswer;
 		}
 
 		const response = await apiClient.get(`/wallet/${identifier}`, { headers });
