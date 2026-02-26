@@ -4,6 +4,8 @@ import {
 	markConversationAsRead,
 } from "../utils/messageStorage.js";
 import logger from "../config/logger.js";
+import config from "../config/env.js";
+import Conversation from "../models/Conversation.js";
 
 /**
  * Get all conversations
@@ -11,7 +13,25 @@ import logger from "../config/logger.js";
 export async function getConversations(req, res) {
 	try {
 		const { paId } = req.query;
-		const conversations = await getAllConversations(paId);
+		const query = {};
+		if (paId) {
+			query.assignedPaId = paId;
+		}
+
+		const totalCount = await Conversation.countDocuments({});
+
+		let conversations = await Conversation.find(query).sort({
+			lastMessageTime: -1,
+		});
+
+		// If in development and no conversations found for this PA, fallback to all conversations
+		if (
+			conversations.length === 0 &&
+			config.server.nodeEnv === "development" &&
+			paId
+		) {
+			conversations = await Conversation.find({}).sort({ lastMessageTime: -1 });
+		}
 
 		// Format for frontend
 		const formatted = conversations
@@ -95,7 +115,10 @@ export async function getConversationMessages(req, res) {
 				id: msg.messageId, // Use messageId as id
 				messageId: msg.messageId, // Include WhatsApp message ID for status tracking
 				conversationId: msg.conversationId,
-				sender: msg.from === "sys" ? "pa" : msg.from ? "client" : "pa",
+				sender:
+					msg.from === "sys" ? "pa"
+					: msg.from ? "client"
+					: "pa",
 				isBot: msg.from === "sys",
 				clientName: msg.from && msg.from !== "sys" ? undefined : null,
 				content: msg.content,

@@ -22,7 +22,33 @@ import { connectDB } from "./src/config/database.js";
 
 const app = express();
 
-// ... (existing code)
+// Middleware
+app.use(helmet());
+app.use(
+	cors({
+		origin:
+			config.server.allowedOrigins.includes("*") ?
+				true
+			:	config.server.allowedOrigins,
+		credentials: true,
+		methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+		allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+	}),
+);
+app.use(requestLogger);
+
+// Rate limiting
+const limiter = rateLimit({
+	windowMs: 15 * 60 * 1000, // 15 minutes
+	max: 100, // limit each IP to 100 requests per windowMs
+	standardHeaders: true,
+	legacyHeaders: false,
+	message: "Too many requests from this IP, please try again after 15 minutes",
+});
+
+if (config.server.nodeEnv === "production") {
+	app.use("/api/", limiter);
+}
 
 // API routes
 app.use(
@@ -31,7 +57,7 @@ app.use(
 		verify: (req, res, buf) => {
 			req.rawBody = buf;
 		},
-	})
+	}),
 );
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use("/webhook", webhookRoutes);

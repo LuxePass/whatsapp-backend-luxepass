@@ -21,9 +21,10 @@ export const config = {
 	server: {
 		port: parseInt(process.env.PORT || "3500", 10),
 		nodeEnv: process.env.NODE_ENV || "development",
-		allowedOrigins: process.env.ALLOWED_ORIGINS
-			? process.env.ALLOWED_ORIGINS.split(",").map((origin) => origin.trim())
-			: ["http://localhost:5173", "http://localhost:3000"],
+		allowedOrigins:
+			process.env.ALLOWED_ORIGINS ?
+				process.env.ALLOWED_ORIGINS.split(",").map((origin) => origin.trim())
+			:	["http://localhost:5173", "http://localhost:3000"],
 	},
 };
 
@@ -38,7 +39,7 @@ const missingVars = requiredVars.filter((varName) => !process.env[varName]);
 
 if (missingVars.length > 0 && config.server.nodeEnv === "production") {
 	console.error(
-		`❌ Missing required environment variables: ${missingVars.join(", ")}`
+		`❌ Missing required environment variables: ${missingVars.join(", ")}`,
 	);
 	process.exit(1);
 }
