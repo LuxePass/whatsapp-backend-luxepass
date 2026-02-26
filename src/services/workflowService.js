@@ -690,6 +690,7 @@ async function handleMainMenu(user, message) {
 		const walletButtons = [
 			{ id: "wallet_balance", title: "💰 Balance" },
 			{ id: "wallet_deposit", title: "📥 Deposit" },
+			{ id: "wallet_add_account", title: "🏦 Add Account" },
 			{ id: "menu", title: "⬅️ Back" },
 		];
 
@@ -1510,9 +1511,10 @@ async function handleWalletMenu(user, message, token = null) {
 	}
 
 	try {
-		// Fetch fresh wallet details from main backend for both balance and deposit
+		// Fetch fresh wallet details from main backend
+		// If we have a verification token, use /wallet/me as per flow requirement
 		const wallet = await backendService.getWallet(
-			user.phoneNumber,
+			verificationToken ? "me" : user.phoneNumber,
 			verificationToken,
 		);
 
@@ -1546,14 +1548,9 @@ async function handleWalletMenu(user, message, token = null) {
 					"We are currently setting up your virtual account. Please contact support or check back in a few minutes for deposit instructions.";
 			}
 			await sendTextMessage(user.phoneNumber, depositText);
-		} else {
-			await sendTextMessage(
-				user.phoneNumber,
-				"Please select an option from the menu.",
-			);
 		}
 
-		// Keep the wallet menu available or offer to return
+		// Show wallet menu again with all options
 		const walletButtons = [
 			{ id: "wallet_balance", title: "💰 Balance" },
 			{ id: "wallet_deposit", title: "📥 Deposit" },
@@ -1562,9 +1559,10 @@ async function handleWalletMenu(user, message, token = null) {
 		];
 		await sendInteractiveMessage(
 			user.phoneNumber,
-			"Is there anything else you need with your wallet?",
+			"What would you like to do next?",
 			walletButtons,
 		);
+		return;
 	} catch (error) {
 		logger.error("Error in handleWalletMenu", { error: error.message });
 		await sendTextMessage(
