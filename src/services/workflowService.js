@@ -1397,7 +1397,7 @@ export async function handleWalletMenu(user, message, token = null) {
 			if (!wallet) {
 				await sendTextMessage(
 					user.phoneNumber,
-					"Incorrect security answer or wallet unavailable. ❌\n\nPlease try again or type 'MENU' to return.",
+					"Incorrect security answer or wallet unavailable (Endpoint: /wallet/me). ❌\n\nPlease try again or type 'MENU' to return.",
 				);
 				return;
 			}
@@ -1463,7 +1463,7 @@ export async function handleWalletMenu(user, message, token = null) {
 			});
 			await sendTextMessage(
 				user.phoneNumber,
-				"An error occurred while accessing your wallet. Please try again or type 'MENU' to return.",
+				"An error occurred while accessing your wallet (Endpoint: /wallet/me). Please try again or type 'MENU' to return.",
 			);
 			return;
 		}

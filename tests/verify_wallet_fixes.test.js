@@ -81,4 +81,18 @@ describe("Wallet Fixes Verification", () => {
 		// Check state reset
 		expect(mockUser.workflowState).toBe("WALLET_MENU");
 	});
+
+	test("should handle wallet access error and show endpoint in message", async () => {
+		mockUser.workflowState = "WALLET_VERIFY_SECURITY";
+		mockUser.workflowData.set("walletPendingAction", "wallet_balance");
+
+		mockGetWallet.mockResolvedValue(null);
+
+		await handleWalletMenu(mockUser, "wrong_answer");
+
+		expect(mockSendTextMessage).toHaveBeenCalledWith(
+			"1234567890",
+			expect.stringContaining("/wallet/me"),
+		);
+	});
 });
