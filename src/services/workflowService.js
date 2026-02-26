@@ -704,9 +704,9 @@ async function handleMainMenu(user, message) {
 						description: "View fund account details",
 					},
 					{
-						id: "wallet_add_account",
-						title: "🏦 Add Account",
-						description: "Save bank details for withdrawal",
+						id: "wallet_manage_accounts",
+						title: "🏦 Manage Accounts",
+						description: "View or delete saved bank accounts",
 					},
 					{ id: "menu", title: "⬅️ Back", description: "Return to main menu" },
 				],
@@ -1427,7 +1427,7 @@ export async function handleWalletMenu(user, message, token = null) {
 		try {
 			// First, verify the security answer to get a token
 			const token = await backendService.verifySecurityAnswer(
-				user.phoneNumber,
+				coreUserId,
 				securityAnswer,
 			);
 
@@ -1596,9 +1596,9 @@ export async function handleWalletMenu(user, message, token = null) {
 						description: "View fund account details",
 					},
 					{
-						id: "wallet_add_account",
-						title: "🏦 Add Account",
-						description: "Save bank details for withdrawal",
+						id: "wallet_manage_accounts",
+						title: "🏦 Manage Accounts",
+						description: "View or delete saved bank accounts",
 					},
 					{ id: "menu", title: "⬅️ Back", description: "Return to main menu" },
 				],

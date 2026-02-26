@@ -80,7 +80,7 @@ describe("Wallet Fixes Verification", () => {
 
 		await handleWalletMenu(mockUser, "Fluffy");
 
-		expect(mockVerifySecurityAnswer).toHaveBeenCalledWith("1234567890", "Fluffy");
+		expect(mockVerifySecurityAnswer).toHaveBeenCalledWith("core-123", "Fluffy");
 		expect(mockGetWallet).toHaveBeenCalledWith("core-123", "mock-token-abc");
 		expect(mockUser.workflowState).toBe("WALLET_MENU");
 		expect(mockSendTextMessage).toHaveBeenCalledWith(
@@ -102,7 +102,7 @@ describe("Wallet Fixes Verification", () => {
 		await handleWalletMenu(mockUser, "wrong_answer");
 
 		expect(mockVerifySecurityAnswer).toHaveBeenCalledWith(
-			"1234567890",
+			"core-123",
 			"wrong_answer",
 		);
 		expect(mockGetWallet).not.toHaveBeenCalled();
