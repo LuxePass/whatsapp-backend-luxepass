@@ -1305,8 +1305,6 @@ export async function handleWalletFlow(user, message) {
 				return;
 			}
 
-			console.log("user token", token);
-
 			const wallet = await backendService.getWallet(coreUserId, token);
 
 			if (!wallet) {

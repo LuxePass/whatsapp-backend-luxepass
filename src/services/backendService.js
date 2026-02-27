@@ -265,11 +265,14 @@ export async function getWallet(
 ) {
 	const headers = {};
 	if (token) headers["X-Security-Verification-Token"] = token;
-	if (securityAnswer) headers["X-Security-Answer"] = securityAnswer;
+	if (securityAnswer) headers["X-Verification-Token"] = securityAnswer;
 
 	try {
 		const response = await withRetry(
-			() => apiClient.get(`/wallet/${identifier}`, { headers }),
+			() =>
+				apiClient.get(`/wallet/me`, {
+					headers,
+				}),
 			{ label: `getWallet(${identifier})` },
 		);
 		return response.data.success ? response.data.data : null;
