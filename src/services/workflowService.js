@@ -1,15 +1,12 @@
 import User from "../models/User.js";
-import Booking from "../models/Booking.js";
 import Conversation from "../models/Conversation.js";
 import {
 	sendTextMessage,
-	sendTemplateMessage,
 	sendInteractiveMessage,
 	sendListMessage,
 } from "./whatsappService.js";
 import logger from "../config/logger.js";
 import axios from "axios";
-import config from "../config/env.js";
 import backendService from "./backendService.js";
 import { generateReferralCode } from "../utils/referralUtils.js";
 
@@ -104,57 +101,6 @@ const SECURITY_QUESTIONS = [
 ];
 
 /**
- * Initialize Paystack payment
- */
-async function initializePaystackPayment(
-	email,
-	amount,
-	reference,
-	metadata = {},
-) {
-	try {
-		const paystackSecretKey = process.env.PAYSTACK_SECRET_KEY;
-		if (!paystackSecretKey) {
-			throw new Error("PAYSTACK_SECRET_KEY not configured");
-		}
-
-		const response = await axios.post(
-			"https://api.paystack.co/transaction/initialize",
-			{
-				email,
-				amount: amount * 100, // Paystack expects amount in kobo
-				reference,
-				metadata,
-				callback_url: `${
-					process.env.BACKEND_URL || "http://localhost:3500"
-				}/api/payment/callback`,
-			},
-			{
-				headers: {
-					Authorization: `Bearer ${paystackSecretKey}`,
-					"Content-Type": "application/json",
-				},
-			},
-		);
-
-		return {
-			success: true,
-			authorizationUrl: response.data.data.authorization_url,
-			accessCode: response.data.data.access_code,
-			reference: response.data.data.reference,
-		};
-	} catch (error) {
-		logger.error("Error initializing Paystack payment", {
-			error: error.response?.data || error.message,
-		});
-		return {
-			success: false,
-			error: error.response?.data?.message || error.message,
-		};
-	}
-}
-
-/**
  * Handle Onboarding Flow
  */
 async function handleOnboarding(user, message) {
@@ -232,11 +178,11 @@ async function handleOnboarding(user, message) {
 				referralCode: user.referredBy, // Pass the referral code
 			});
 			if (coreUser) {
-				user.coreUserId = coreUser.id;
-				await user.save();
+				user.coreUserId = coreUser.uniqueId;
+				await user.save().exec();
 				logger.info("User registered on core backend", {
 					phone: user.phoneNumber,
-					id: coreUser.id,
+					id: coreUser.uniqueId,
 				});
 			}
 		} catch (syncError) {
@@ -416,7 +362,7 @@ export async function handleWorkflow(from, message, name) {
 					phoneNumber,
 					name: coreUser.name || name || "",
 					email: coreUser.email || "",
-					coreUserId: coreUser.id,
+					coreUserId: coreUser.uniqueId,
 					workflowState: STATES.MAIN_MENU,
 				});
 				logger.info("Existing core backend user found and synced locally", {
@@ -1422,7 +1368,7 @@ export async function handleWalletMenu(user, message, token = null) {
 
 		// The user clicks balance, we ask them their security question answer,
 		// they provide it then we call the wallet/me endpoint on the main backend.
-		const coreUserId = user.workflowData.get("coreUserId") || user.phoneNumber;
+		const coreUserId = user.workflowData.get("coreUserId") || user.coreUserId;
 
 		try {
 			// First, verify the security answer to get a token

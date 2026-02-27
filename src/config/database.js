@@ -24,6 +24,7 @@ export async function connectDB() {
 				maxPoolSize: 10,
 				serverSelectionTimeoutMS: 30000,
 				connectTimeoutMS: 30000,
+				dbName: "luxepass-whatsapp",
 			})
 			.then((mongoose) => {
 				logger.info(`MongoDB Connected: ${mongoose.connection.host}`);
