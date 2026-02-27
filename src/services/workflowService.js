@@ -371,22 +371,34 @@ export async function handleWorkflow(from, message, name) {
 
 		// ── New user ─────────────────────────────────────────────────────────────
 		if (!user) {
-			// Check if already registered in the core backend
-			const coreUser = await backendService.checkUserExists(phoneNumber);
+			// Check if already registered in the core backend.
+			// API response shape: { exists: boolean, uniqueId: string | null }
+			const coreCheck = await backendService.checkUserExists(phoneNumber);
 
-			if (coreUser) {
-				// Re-sync existing core user into local MongoDB
+			if (coreCheck?.exists === true) {
+				// User exists in the core backend — create a local record and skip onboarding entirely.
+				// We only have phone + WA display name at this point, but that's enough to get them started.
 				user = await User.create({
 					phoneNumber,
-					name: coreUser.name || name || "",
-					email: coreUser.email || "",
-					coreUserId: coreUser.uniqueId,
+					name: name || "",
+					// Store uniqueId only when the backend actually provides it
+					...(coreCheck.uniqueId && { coreUserId: coreCheck.uniqueId }),
 					workflowState: STATES.MAIN_MENU,
 				});
-				logger.info("Core backend user synced locally", { phoneNumber });
+
+				logger.info(
+					"Existing core-backend user synced to local DB — skipping onboarding",
+					{
+						phoneNumber,
+						coreUserId: coreCheck.uniqueId ?? "not provided",
+					},
+				);
+
 				await sendWelcomeMenu(phoneNumber, user.name);
 				return;
 			}
+
+			// User does not exist in core backend — start full onboarding
 
 			// Immediate live-chat request from a first-time user
 			const isLiveChatRequest =
