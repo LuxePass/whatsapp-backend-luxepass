@@ -265,6 +265,8 @@ export async function getWallet(
 ) {
 	const headers = {};
 	if (token) headers["X-Security-Verification-Token"] = token;
+	if (token) headers["X-Verification-Token"] = token;
+
 	if (securityAnswer) headers["X-Verification-Token"] = securityAnswer;
 
 	try {
