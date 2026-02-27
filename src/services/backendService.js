@@ -264,6 +264,7 @@ export async function getWallet(
 	securityAnswer = null,
 ) {
 	const headers = {};
+	headers["X-Unique-Id"] = identifier;
 	if (token) headers["X-Security-Verification-Token"] = token;
 	if (token) headers["X-Verification-Token"] = token;
 
