@@ -34,7 +34,7 @@ export async function checkUserExists(phone) {
 	try {
 		const normalizedPhone = normalizePhone(phone);
 		const response = await apiClient.get(
-			`/auth/security-question?userIdentifier=${normalizedPhone}`,
+			`/users/exists?phone=${normalizedPhone}`,
 		);
 		if (response.data.success) {
 			return response.data.data;
