@@ -234,6 +234,41 @@ async function handleOnboarding(user, message) {
 				phone: user.phoneNumber,
 				code: referralInput,
 			});
+
+			try {
+				// Find the referrer and update their stats
+				const referrer = await User.findOne({ referralCode: referralInput });
+				if (referrer) {
+					referrer.referralCount = (referrer.referralCount || 0) + 1;
+					// Award a sign-up bonus, e.g., 500 NGN
+					const rewardAmount = 500;
+					referrer.rewardsEarned = (referrer.rewardsEarned || 0) + rewardAmount;
+					await referrer.save();
+
+					logger.info("Referrer rewarded", {
+						referrerPhone: referrer.phoneNumber,
+						referredPhone: user.phoneNumber,
+						rewardAmount,
+					});
+
+					// Notify referrer
+					await sendTextMessage(
+						referrer.phoneNumber,
+						`🎁 *Referral Reward!* 🎊\n\nYour friend with phone number starting with *${user.phoneNumber.substring(0, 6)}...* has just joined LuxePass using your code!\n\nYou've earned a reward of *₦${rewardAmount.toLocaleString()}*! 💰\n\nKeep referring to earn more! 🚀`,
+					);
+				} else {
+					logger.warn("Invalid referral code provided during onboarding", {
+						phone: user.phoneNumber,
+						code: referralInput,
+					});
+				}
+			} catch (err) {
+				logger.error("Error processing referral reward", {
+					phone: user.phoneNumber,
+					code: referralInput,
+					error: err.message,
+				});
+			}
 		}
 
 		// Register user on core backend and persist the returned uniqueId
