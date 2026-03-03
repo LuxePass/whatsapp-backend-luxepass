@@ -47,12 +47,26 @@ export const getReferralStats = async (req, res) => {
 		);
 
 		// Get recent referral activities (users who were referred)
-		const recentReferrals = await User.find({
+		const recentReferralsRaw = await User.find({
 			referredBy: { $exists: true, $ne: null },
 		})
 			.sort({ createdAt: -1 })
 			.limit(50)
 			.select("name phoneNumber referredBy rewardsEarned createdAt workflowState");
+
+		// Enrich activities with referrer details
+		const activities = await Promise.all(
+			recentReferralsRaw.map(async (activity) => {
+				const referrer = await User.findOne({
+					referralCode: activity.referredBy,
+				}).select("name phoneNumber");
+				return {
+					...activity.toObject(),
+					referrerName: referrer ? referrer.name : "Unknown",
+					referrerPhone: referrer ? referrer.phoneNumber : "N/A",
+				};
+			}),
+		);
 
 		// Total rewards across all users
 		const rewardStats = await User.aggregate([
@@ -73,7 +87,7 @@ export const getReferralStats = async (req, res) => {
 						rewardStats.length > 0 ? rewardStats[0].totalRewardsEarned : 0,
 				},
 				topReferrers: referrersWithDetails,
-				activities: recentReferrals,
+				activities: activities,
 			},
 		});
 	} catch (error) {

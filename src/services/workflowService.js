@@ -59,6 +59,10 @@ const STATES = {
 	WALLET_ADD_ACCOUNT_NAME: "WALLET_ADD_ACCOUNT_NAME",
 	WALLET_MANAGE_ACCOUNTS: "WALLET_MANAGE_ACCOUNTS",
 	WALLET_DELETE_ACCOUNT_SELECT: "WALLET_DELETE_ACCOUNT_SELECT",
+
+	// Referral Withdrawal
+	REFERRAL_WITHDRAW_SELECT_BANK: "REFERRAL_WITHDRAW_SELECT_BANK",
+	REFERRAL_WITHDRAW_CONFIRM: "REFERRAL_WITHDRAW_CONFIRM",
 };
 
 const PROPERTY_TYPES = [
@@ -501,6 +505,11 @@ export async function handleWorkflow(from, message, name) {
 			return;
 		}
 
+		if (lowered === "withdraw") {
+			await handleWithdrawInitiation(user);
+			return;
+		}
+
 		// ── Route to correct handler ──────────────────────────────────────────────
 		await routeWorkflowState(user, message);
 	} catch (err) {
@@ -576,6 +585,11 @@ async function routeWorkflowState(user, message) {
 		return handleBookingPaymentVerify(user, message);
 	if (conciergeStates.has(state)) return handleConciergeFlow(user, message);
 	if (state === STATES.REFERRAL_MENU) return handleReferralFlow(user, message);
+	if (
+		state === STATES.REFERRAL_WITHDRAW_SELECT_BANK ||
+		state === STATES.REFERRAL_WITHDRAW_CONFIRM
+	)
+		return handleReferralWithdrawFlow(user, message);
 	if (walletStates.has(state)) return handleWalletFlow(user, message);
 
 	// Unknown state — reset gracefully
@@ -1285,7 +1299,7 @@ async function handleReferralFlow(user, message) {
 
 	await sendTextMessage(
 		user.phoneNumber,
-		`*Referral Program* 🎁\n\nInvite friends to LuxePass and earn rewards!\n\n*Your Referral Code:* *${user.referralCode}*\n\nShare this code with your friends. When they sign up using your code, you'll both get exclusive perks!\n\nStart referring today! 🚀`,
+		`*Referral Program* 🎁\n\nInvite friends to LuxePass and earn rewards!\n\n*Your Referral Code:* *${user.referralCode}*\n\n*Earnings Summary* 💰\nTotal Earned: ₦${(user.rewardsEarned || 0).toLocaleString()}\nMin Withdrawal: ₦2,000\n\n*How to Withdraw* 🏦\nOnce you reach the minimum balance, reply with *WITHDRAW* or contact our concierge via this chat to process your payout.\n\nShare your code with friends today! 🚀`,
 	);
 
 	user.workflowState = STATES.MAIN_MENU;
@@ -1601,6 +1615,133 @@ async function handleWalletManageAccountsMenu(user) {
 }
 
 // ─── PA Auto-Assign ───────────────────────────────────────────────────────────
+
+// ─── Referral Withdrawal Flow ──────────────────────────────────────────────────
+
+/**
+ * Initiates the withdrawal process for referral rewards.
+ */
+async function handleWithdrawInitiation(user) {
+	const minWithdrawal = 2000;
+	const earnings = user.rewardsEarned || 0;
+
+	if (earnings < minWithdrawal) {
+		await sendTextMessage(
+			user.phoneNumber,
+			`*Insufficient Balance* ❌\n\nYou currently have *₦${earnings.toLocaleString()}* in referral rewards.\n\nThe minimum amount you can withdraw is *₦${minWithdrawal.toLocaleString()}*.\n\nKeep referring more people to earn more rewards! 🚀`,
+		);
+		return;
+	}
+
+	const accounts = user.savedBankAccounts || [];
+	if (accounts.length === 0) {
+		await sendTextMessage(
+			user.phoneNumber,
+			`*No Bank Account Found* 🏦\n\nPlease add a bank account first to receive your rewards.\n\nGo to *Main Menu* > *3. Wallet* > *Manage Accounts* > *Add Account* to save your bank details, then try again.`,
+		);
+		return;
+	}
+
+	// Show bank list
+	const rows = accounts.map((acc, i) => ({
+		id: `withdraw_bank_${i}`,
+		title: acc.bankName,
+		description: `${acc.accountNumber} — ${acc.accountName}`,
+	}));
+
+	user.workflowState = STATES.REFERRAL_WITHDRAW_SELECT_BANK;
+	await user.save();
+
+	await sendListMessage(
+		user.phoneNumber,
+		`*Withdraw Referral Rewards* 💰\n\nYou are about to withdraw your total earnings of *₦${earnings.toLocaleString()}*.\n\nPlease select the bank account where you'd like to receive the funds:`,
+		"Select Bank",
+		[{ title: "Your Saved Bank Accounts", rows }],
+		"Select Bank 🏦",
+	);
+}
+
+/**
+ * Handles the selection and confirmation of withdrawal.
+ */
+async function handleReferralWithdrawFlow(user, message) {
+	const choice = message.trim().toLowerCase();
+	const { phoneNumber } = user;
+
+	if (choice === "menu" || choice === "back" || choice === "main menu") {
+		user.workflowState = STATES.MAIN_MENU;
+		await user.save();
+		await sendWelcomeMenu(phoneNumber, user.name);
+		return;
+	}
+
+	if (user.workflowState === STATES.REFERRAL_WITHDRAW_SELECT_BANK) {
+		if (choice.startsWith("withdraw_bank_")) {
+			const index = parseInt(choice.replace("withdraw_bank_", ""), 10);
+			const accounts = user.savedBankAccounts || [];
+
+			if (index >= 0 && index < accounts.length) {
+				const selectedBank = accounts[index];
+				user.workflowData.set("withdrawBankName", selectedBank.bankName);
+				user.workflowData.set("withdrawAccountNum", selectedBank.accountNumber);
+				user.workflowData.set("withdrawAccountName", selectedBank.accountName);
+				user.workflowState = STATES.REFERRAL_WITHDRAW_CONFIRM;
+				await user.save();
+
+				await sendInteractiveMessage(
+					phoneNumber,
+					`*Confirm Withdrawal* ⚖️\n\n*Amount:* ₦${(user.rewardsEarned || 0).toLocaleString()}\n*To Bank:* ${selectedBank.bankName}\n*Account:* ${selectedBank.accountNumber}\n*Name:* ${selectedBank.accountName}\n\nProceed with this withdrawal?`,
+					[
+						{ id: "confirm_withdraw_yes", title: "✅ Yes, Proceed" },
+						{ id: "confirm_withdraw_no", title: "❌ Cancel" },
+					],
+				);
+			}
+			return;
+		}
+	}
+
+	if (user.workflowState === STATES.REFERRAL_WITHDRAW_CONFIRM) {
+		if (choice === "confirm_withdraw_yes") {
+			const amount = user.rewardsEarned || 0;
+			const bankName = user.workflowData.get("withdrawBankName");
+			const accountNum = user.workflowData.get("withdrawAccountNum");
+			const accountName = user.workflowData.get("withdrawAccountName");
+
+			// Deduct balance
+			user.rewardsEarned = 0;
+			user.workflowState = STATES.MAIN_MENU;
+			user.workflowData = new Map();
+			await user.save();
+
+			// Notify user
+			await sendTextMessage(
+				phoneNumber,
+				`✅ *Withdrawal Request Submitted*\n\nYour request for *₦${amount.toLocaleString()}* to be paid into your ${bankName} account has been received.\n\nOur team will process this shortly. You will be notified once the transfer is successful. 🥂`,
+			);
+
+			// Logic to notify admin/concierge could go here (e.g. log or another message)
+			logger.info("REFERRAL_WITHDRAWAL_REQUEST", {
+				phoneNumber,
+				amount,
+				bankName,
+				accountNum,
+				accountName,
+			});
+
+			await sendWelcomeMenu(phoneNumber, user.name);
+			return;
+		}
+
+		if (choice === "confirm_withdraw_no") {
+			user.workflowState = STATES.REFERRAL_MENU;
+			user.workflowData = new Map();
+			await user.save();
+			await handleReferralFlow(user, "start");
+			return;
+		}
+	}
+}
 
 async function autoAssignPA(user) {
 	try {
