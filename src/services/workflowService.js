@@ -19,8 +19,8 @@ const STATES = {
 	ONBOARDING_SECURITY_QUESTION: "ONBOARDING_SECURITY_QUESTION",
 	ONBOARDING_SECURITY_ANSWER: "ONBOARDING_SECURITY_ANSWER",
 
-	// Main
-	MAIN_MENU: "MAIN_MENU",
+	// Services
+	SERVICE_MENU: "SERVICE_MENU",
 
 	// Booking
 	BOOKING_CATEGORY: "BOOKING_CATEGORY",
@@ -31,23 +31,15 @@ const STATES = {
 	BOOKING_DETAILS_REQUESTS: "BOOKING_DETAILS_REQUESTS",
 	BOOKING_PAYMENT: "BOOKING_PAYMENT",
 
-	// Concierge
-	CONCIERGE_START: "CONCIERGE_START",
-	CONCIERGE_TRANSPORT_TYPE: "CONCIERGE_TRANSPORT_TYPE",
-	CONCIERGE_TRANSPORT_PICKUP: "CONCIERGE_TRANSPORT_PICKUP",
-	CONCIERGE_TRANSPORT_DROPOFF: "CONCIERGE_TRANSPORT_DROPOFF",
-	CONCIERGE_TRANSPORT_DATE: "CONCIERGE_TRANSPORT_DATE",
-	CONCIERGE_TRANSPORT_PASSENGERS: "CONCIERGE_TRANSPORT_PASSENGERS",
-	CONCIERGE_FLIGHT_ORIGIN: "CONCIERGE_FLIGHT_ORIGIN",
-	CONCIERGE_FLIGHT_DESTINATION: "CONCIERGE_FLIGHT_DESTINATION",
-	CONCIERGE_FLIGHT_DATE: "CONCIERGE_FLIGHT_DATE",
-	CONCIERGE_FLIGHT_PASSENGERS: "CONCIERGE_FLIGHT_PASSENGERS",
-	CONCIERGE_FLIGHT_CLASS: "CONCIERGE_FLIGHT_CLASS",
-	CONCIERGE_FUND_AMOUNT: "CONCIERGE_FUND_AMOUNT",
-	CONCIERGE_FUND_NARRATION: "CONCIERGE_FUND_NARRATION",
-	CONCIERGE_FUND_VERIFY: "CONCIERGE_FUND_VERIFY",
+	// Concierge (Simplified & Restructured)
+	CONCIERGE_CATEGORY: "CONCIERGE_CATEGORY",
 	CONCIERGE_DEALS: "CONCIERGE_DEALS",
 	CONCIERGE_BOOKING: "CONCIERGE_BOOKING",
+
+	// Emergency Withdrawal
+	WITHDRAWAL_AMOUNT: "WITHDRAWAL_AMOUNT",
+	WITHDRAWAL_NARRATION: "WITHDRAWAL_NARRATION",
+	WITHDRAWAL_VERIFY: "WITHDRAWAL_VERIFY",
 
 	// Other
 	PERSONAL_ASSISTANT: "PERSONAL_ASSISTANT",
@@ -66,16 +58,6 @@ const STATES = {
 	REFERRAL_WITHDRAW_SELECT_BANK: "REFERRAL_WITHDRAW_SELECT_BANK",
 	REFERRAL_WITHDRAW_CONFIRM: "REFERRAL_WITHDRAW_CONFIRM",
 };
-
-const PROPERTY_TYPES = [
-	{ id: "APARTMENT", name: "Apartment" },
-	{ id: "HOUSE", name: "House" },
-	{ id: "VILLA", name: "Villa" },
-	{ id: "TOWNHOUSE", name: "Townhouse" },
-	{ id: "CONDO", name: "Condo" },
-	{ id: "OFFICE", name: "Office" },
-	{ id: "OTHER", name: "Other" },
-];
 
 const SECURITY_QUESTIONS = [
 	"What was the name of your first pet?",
@@ -164,17 +146,37 @@ async function sendWalletMenu(to) {
 }
 
 /**
- * Sends the services sub-menu buttons.
+ * Sends the services sub-menu list (Refactored to List Message).
  */
 async function sendServicesMenu(to) {
-	await sendInteractiveMessage(
+	await sendListMessage(
 		to,
-		"*LuxePass Services* 🚀\n\nWhat would you like to do today?",
+		"*LuxePass Services* 🚀\n\nChoose a category to discover our offerings:",
+		"Select Service",
 		[
-			{ id: "1", title: "🏨 Bookings" },
-			{ id: "2", title: "🌟 Explore Deals" },
-			{ id: "3", title: "💸 Withdrawal" },
+			{
+				title: "Our Services",
+				rows: [
+					{
+						id: "service_bookings",
+						title: "🏨 Bookings",
+						description: "Apartments, Villas & More",
+					},
+					{
+						id: "service_concierge",
+						title: "🌟 Concierge",
+						description: "Luxury Lifestyle Services",
+					},
+					{
+						id: "service_withdrawal",
+						title: "💸 Withdrawal",
+						description: "Emergency fund request",
+					},
+					{ id: "menu", title: "⬅️ Back", description: "Return to Main Menu" },
+				],
+			},
 		],
+		"LuxePass Services 💎",
 	);
 }
 
@@ -554,20 +556,15 @@ async function routeWorkflowState(user, message) {
 	]);
 
 	const conciergeStates = new Set([
-		STATES.CONCIERGE_START,
-		STATES.CONCIERGE_TRANSPORT_TYPE,
-		STATES.CONCIERGE_TRANSPORT_PICKUP,
-		STATES.CONCIERGE_TRANSPORT_DROPOFF,
-		STATES.CONCIERGE_TRANSPORT_DATE,
-		STATES.CONCIERGE_TRANSPORT_PASSENGERS,
-		STATES.CONCIERGE_FLIGHT_ORIGIN,
-		STATES.CONCIERGE_FLIGHT_DESTINATION,
-		STATES.CONCIERGE_FLIGHT_DATE,
-		STATES.CONCIERGE_FLIGHT_PASSENGERS,
-		STATES.CONCIERGE_FLIGHT_CLASS,
-		STATES.CONCIERGE_FUND_AMOUNT,
-		STATES.CONCIERGE_FUND_NARRATION,
-		STATES.CONCIERGE_FUND_VERIFY,
+		STATES.CONCIERGE_CATEGORY,
+		STATES.CONCIERGE_DEALS,
+		STATES.CONCIERGE_BOOKING,
+	]);
+
+	const withdrawalStates = new Set([
+		STATES.WITHDRAWAL_AMOUNT,
+		STATES.WITHDRAWAL_NARRATION,
+		STATES.WITHDRAWAL_VERIFY,
 	]);
 
 	const walletStates = new Set([
@@ -582,10 +579,12 @@ async function routeWorkflowState(user, message) {
 
 	if (onboardingStates.has(state)) return handleOnboarding(user, message);
 	if (state === STATES.MAIN_MENU) return handleMainMenu(user, message);
+	if (state === STATES.SERVICE_MENU) return handleServiceMenu(user, message);
 	if (bookingStates.has(state)) return handleBookingFlow(user, message);
 	if (state === STATES.BOOKING_PAYMENT)
 		return handleBookingPaymentVerify(user, message);
 	if (conciergeStates.has(state)) return handleConciergeFlow(user, message);
+	if (withdrawalStates.has(state)) return handleWithdrawalFlow(user, message);
 	if (state === STATES.REFERRAL_MENU) return handleReferralFlow(user, message);
 	if (
 		state === STATES.REFERRAL_WITHDRAW_SELECT_BANK ||
@@ -611,53 +610,10 @@ async function handleMainMenu(user, message) {
 
 	switch (choice) {
 		case "services":
+			user.workflowState = STATES.SERVICE_MENU;
+			await user.save();
 			await sendServicesMenu(user.phoneNumber);
 			break;
-
-		case "1": {
-			// Bookings
-			user.workflowData = new Map();
-			if (user.email) user.workflowData.set("email", user.email);
-			user.workflowState = STATES.BOOKING_CATEGORY;
-			await user.save();
-
-			const categoryRows = PROPERTY_TYPES.map((t) => ({
-				id: t.id,
-				title: t.name,
-				description: `View available ${t.name.toLowerCase()}s`,
-			}));
-
-			await sendListMessage(
-				user.phoneNumber,
-				"Select a property type to begin your booking:",
-				"Select Type",
-				[{ title: "Property Types", rows: categoryRows }],
-				"Booking Services 🏨",
-			);
-			break;
-		}
-
-		case "2": {
-			// Explore Deals (Concierge)
-			user.workflowData = new Map();
-			if (user.email) user.workflowData.set("email", user.email);
-			user.workflowState = STATES.CONCIERGE_START;
-			await user.save();
-
-			// Directly show deals instead of sub-menu
-			return handleConciergeFlow(user, "deals");
-		}
-
-		case "3": {
-			// Emergency Withdrawal (Concierge)
-			user.workflowData = new Map();
-			if (user.email) user.workflowData.set("email", user.email);
-			user.workflowState = STATES.CONCIERGE_START;
-			await user.save();
-
-			// Directly show funds/withdrawal instead of sub-menu
-			return handleConciergeFlow(user, "funds");
-		}
 
 		case "wallet_menu":
 		case "3":
@@ -695,6 +651,91 @@ async function handleMainMenu(user, message) {
 				"Please select a valid option from the menu list.",
 			);
 			await sendWelcomeMenu(user.phoneNumber, user.name);
+	}
+}
+
+// ─── Service Menu Handler ───────────────────────────────────────────────────
+
+async function handleServiceMenu(user, message) {
+	const choice = message.trim().toLowerCase();
+
+	if (choice === "menu" || choice === "back") {
+		user.workflowState = STATES.MAIN_MENU;
+		await user.save();
+		await sendWelcomeMenu(user.phoneNumber, user.name);
+		return;
+	}
+
+	switch (choice) {
+		case "service_bookings":
+			user.workflowData = new Map();
+			if (user.email) user.workflowData.set("email", user.email);
+			user.workflowState = STATES.BOOKING_CATEGORY;
+			await user.save();
+
+			try {
+				const categories = await backendService.getPropertyTypes();
+				const categoryRows = categories.map((cat) => ({
+					id: cat,
+					title: cat.charAt(0) + cat.slice(1).toLowerCase(),
+					description: `View available ${cat.toLowerCase()}s`,
+				}));
+
+				await sendListMessage(
+					user.phoneNumber,
+					"Select a property category to begin your booking:",
+					"Select Category",
+					[{ title: "Property Categories", rows: categoryRows }],
+					"Booking Services 🏨",
+				);
+			} catch (err) {
+				await sendTextMessage(
+					user.phoneNumber,
+					"Error fetching categories. Please try again later.",
+				);
+			}
+			break;
+
+		case "service_concierge":
+			user.workflowData = new Map();
+			if (user.email) user.workflowData.set("email", user.email);
+			user.workflowState = STATES.CONCIERGE_CATEGORY;
+			await user.save();
+
+			try {
+				const categories = await backendService.getConciergeCategories();
+				const categoryRows = categories.map((cat) => ({
+					id: `concierge_cat_${cat}`,
+					title: cat,
+					description: `Luxury ${cat.toLowerCase()} services`,
+				}));
+
+				await sendListMessage(
+					user.phoneNumber,
+					"🌟 *Luxury Concierge Services*\n\nPlease select a service category:",
+					"Select Category",
+					[{ title: "Service Categories", rows: categoryRows }],
+					"Concierge Services 🛎️",
+				);
+			} catch (err) {
+				await sendTextMessage(
+					user.phoneNumber,
+					"Error fetching concierge categories. Please try again.",
+				);
+			}
+			break;
+
+		case "service_withdrawal":
+			user.workflowState = STATES.WITHDRAWAL_AMOUNT;
+			await user.save();
+			await sendTextMessage(
+				user.phoneNumber,
+				"*Emergency Withdrawal Flow* 💸\n\nPlease enter the amount you'd like to withdraw from your virtual account (in NGN, e.g. 50000).",
+			);
+			break;
+
+		default:
+			await sendServicesMenu(user.phoneNumber);
 	}
 }
 
@@ -958,60 +999,28 @@ async function handleBookingPaymentVerify(user, message) {
 // ─── Concierge Flow ───────────────────────────────────────────────────────────
 
 async function handleConciergeFlow(user, message) {
-	const choice = message.trim();
 	const { phoneNumber } = user;
+	const choice = message.trim();
 
-	// Concierge start — pick service type
-	if (user.workflowState === STATES.CONCIERGE_START) {
-		const selection = choice.toLowerCase();
+	// Category selection
+	if (user.workflowState === STATES.CONCIERGE_CATEGORY) {
+		if (choice.startsWith("concierge_cat_")) {
+			const category = choice.replace("concierge_cat_", "");
+			user.workflowData.set("selectedCategory", category);
 
-		if (selection === "transport" || selection === "1") {
-			user.workflowState = STATES.CONCIERGE_TRANSPORT_TYPE;
-			await user.save();
-			await sendListMessage(
-				phoneNumber,
-				"Please select your transport type:",
-				"Select Type",
-				[
-					{
-						title: "Transport Options",
-						rows: [
-							{
-								id: "airport",
-								title: "Airport Pickup",
-								description: "Seamless airport transfers",
-							},
-							{
-								id: "city",
-								title: "City Transfer",
-								description: "Point-to-point city travel",
-							},
-							{
-								id: "fleet",
-								title: "Fleet Rental",
-								description: "Luxury car rentals",
-							},
-							{
-								id: "flight",
-								title: "Flight Booking",
-								description: "Domestic & International flights",
-							},
-						],
-					},
-				],
-				"Transport Services 🚗",
-			);
-			return;
-		}
-
-		if (selection === "deals" || selection === "2") {
-			const items = await backendService.getConciergeItems({ limit: 10 });
+			const items = await backendService.getConciergeItems({
+				category,
+				limit: 10,
+			});
 
 			if (!items || items.length === 0) {
 				await sendTextMessage(
 					phoneNumber,
-					"No concierge deals available at the moment. Please check back later!",
+					`No items available in ${category} at the moment.`,
 				);
+				user.workflowState = STATES.SERVICE_MENU;
+				await user.save();
+				await sendServicesMenu(phoneNumber);
 				return;
 			}
 
@@ -1021,150 +1030,26 @@ async function handleConciergeFlow(user, message) {
 			const rows = items.map((item) => ({
 				id: item.id,
 				title: item.name,
-				description: `${item.currency} ${item.price} - ${item.category}`,
+				description: `${item.currency} ${Number(item.price).toLocaleString()} - ${item.category}`,
 			}));
 
 			await sendListMessage(
 				phoneNumber,
-				"🌟 *Exclusive Concierge Deals*\n\nSelect a deal to view details and book:",
-				"View Deals",
-				[{ title: "Available Deals", rows }],
+				`*${category} Services* 🌟\n\nSelect a service to view details:`,
+				"View Services",
+				[{ title: "Available Services", rows }],
 				"Concierge Deals 🛎️",
 			);
 			return;
 		}
-
-		if (selection === "funds" || selection === "3") {
-			user.workflowState = STATES.CONCIERGE_FUND_AMOUNT;
-			await user.save();
-			await sendTextMessage(
-				phoneNumber,
-				"*Emergency Withdrawal* 💸\n\nHow much would you like to request? (in NGN, e.g. 50000)",
-			);
-			return;
-		}
-
-		if (selection === "menu" || selection === "back") {
-			user.workflowState = STATES.MAIN_MENU;
-			await user.save();
-			await sendWelcomeMenu(phoneNumber, user.name);
-			return;
-		}
-
-		await sendTextMessage(phoneNumber, "Please select a valid option.");
-		return;
 	}
 
-	// ── Transport sub-flows ──────────────────────────────────────────────────
-
-	if (user.workflowState === STATES.CONCIERGE_TRANSPORT_TYPE) {
-		const type = choice.toLowerCase();
-
-		if (["airport", "city", "fleet"].includes(type)) {
-			user.workflowData.set("transportType", type);
-			user.workflowState = STATES.CONCIERGE_TRANSPORT_PICKUP;
-			await user.save();
-			await sendTextMessage(phoneNumber, "Please enter the *Pickup Location*:");
-			return;
-		}
-
-		if (type === "flight") {
-			user.workflowData.set("transportType", "flight");
-			user.workflowState = STATES.CONCIERGE_FLIGHT_ORIGIN;
-			await user.save();
-			await sendTextMessage(
-				phoneNumber,
-				"Please enter the *Origin City/Airport* (e.g. Lagos/LOS):",
-			);
-			return;
-		}
-
-		await sendTextMessage(
-			phoneNumber,
-			"Please select a valid transport type from the list.",
-		);
-		return;
-	}
-
-	if (user.workflowState === STATES.CONCIERGE_TRANSPORT_PICKUP) {
-		user.workflowData.set("pickup", choice);
-		user.workflowState = STATES.CONCIERGE_TRANSPORT_DROPOFF;
-		await user.save();
-		await sendTextMessage(phoneNumber, "Please enter the *Drop-off Location*:");
-		return;
-	}
-
-	if (user.workflowState === STATES.CONCIERGE_TRANSPORT_DROPOFF) {
-		user.workflowData.set("dropoff", choice);
-		user.workflowState = STATES.CONCIERGE_TRANSPORT_DATE;
-		await user.save();
-		await sendTextMessage(
-			phoneNumber,
-			"Please enter the *Date & Time* (e.g. Tomorrow 10am or 2025-12-25 14:00):",
-		);
-		return;
-	}
-
-	if (user.workflowState === STATES.CONCIERGE_TRANSPORT_DATE) {
-		user.workflowData.set("date", choice);
-		user.workflowState = STATES.CONCIERGE_TRANSPORT_PASSENGERS;
-		await user.save();
-		await sendTextMessage(phoneNumber, "How many passengers?");
-		return;
-	}
-
-	if (user.workflowState === STATES.CONCIERGE_TRANSPORT_PASSENGERS) {
-		const passengers = choice.replace(/\D/g, "") || "1";
-		user.workflowData.set("passengers", passengers);
-
-		const transportType = user.workflowData.get("transportType");
-		const pickup = user.workflowData.get("pickup");
-		const dropoff = user.workflowData.get("dropoff");
-		const date = user.workflowData.get("date");
-
-		await sendTextMessage(phoneNumber, "Processing your request... ⏳");
-
-		const booking = await backendService.createBooking({
-			type: "TRANSPORT",
-			phone: phoneNumber,
-			transportDetails: {
-				transportType,
-				pickup,
-				dropoff,
-				date,
-			},
-			specialRequests: `Type: ${transportType}, Pickup: ${pickup}, Dropoff: ${dropoff}, Date: ${date}`,
-			guestCount: parseInt(passengers, 10),
-			currency: "NGN",
-		});
-
-		if (booking) {
-			await sendTextMessage(
-				phoneNumber,
-				`✅ *Transport Request Received!*\n\nReference: ${booking.id.substring(0, 8)}\nType: ${transportType.toUpperCase()}\n\nOur concierge team will contact you shortly to confirm details and pricing.`,
-			);
-		} else {
-			await sendTextMessage(
-				phoneNumber,
-				"⚠️ We couldn't process your request automatically. A live agent has been notified and will assist you shortly.",
-			);
-			user.isLiveChatActive = true;
-			user.workflowState = STATES.PERSONAL_ASSISTANT;
-			await user.save();
-			await autoAssignPA(user);
-			return;
-		}
-
-		user.workflowState = STATES.MAIN_MENU;
-		await user.save();
-		await sendWelcomeMenu(phoneNumber, user.name);
-		return;
-	}
-
+	// Deal details & confirmation
 	if (user.workflowState === STATES.CONCIERGE_DEALS) {
 		const itemId = choice;
-		const items = await backendService.getConciergeItems({ limit: 50 }); // Simple find for now
-		const item = items.find((i) => i.id === itemId);
+		const item = await backendService
+			.getConciergeItems({ limit: 50 })
+			.then((arr) => arr.find((i) => i.id === itemId));
 
 		if (!item) {
 			await sendTextMessage(phoneNumber, "Invalid selection. Please try again.");
@@ -1173,33 +1058,34 @@ async function handleConciergeFlow(user, message) {
 
 		user.workflowData.set("selectedDealId", item.id);
 		user.workflowData.set("selectedDealName", item.name);
+		user.workflowData.set("selectedDealPrice", String(item.price));
 		user.workflowState = STATES.CONCIERGE_BOOKING;
 		await user.save();
 
 		await sendInteractiveMessage(
 			phoneNumber,
-			`*${item.name}* 🌟\n\n${item.description || "No description available."}\n\n*Price:* ${item.currency} ${item.price}\n*Category:* ${item.category}\n\nWould you like to book this deal?`,
+			`*${item.name}* 🌟\n\n${item.description || "No description available."}\n\n*Price:* ${item.currency} ${Number(item.price).toLocaleString()}\n\nWould you like to proceed with this service?`,
 			[
-				{ id: "confirm", title: "✅ Confirm Booking" },
-				{ id: "back", title: "🔙 Back to Deals" },
+				{ id: "confirm", title: "✅ Proceed to Payment" },
+				{ id: "back", title: "🔙 Back" },
 			],
 		);
 		return;
 	}
 
+	// Booking completion
 	if (user.workflowState === STATES.CONCIERGE_BOOKING) {
 		if (choice.toLowerCase() === "confirm") {
 			const dealName = user.workflowData.get("selectedDealName");
 
-			await sendTextMessage(phoneNumber, "Processing your booking... ⏳");
+			await sendTextMessage(phoneNumber, "Redirecting to payment... ⏳");
 
 			try {
 				await backendService.createBooking({
 					type: "CONCIERGE",
 					phone: phoneNumber,
-					specialRequests: `CONCIERGE DEAL: ${dealName}`,
+					specialRequests: `CONCIERGE SERVICE: ${dealName}`,
 					checkIn: new Date().toISOString().split("T")[0],
-					checkOut: new Date(Date.now() + 86_400_000).toISOString().split("T")[0],
 					guestCount: 1,
 					currency: "NGN",
 				});
@@ -1209,181 +1095,24 @@ async function handleConciergeFlow(user, message) {
 
 				await sendTextMessage(
 					phoneNumber,
-					`✅ Your booking for *${dealName}* has been received! Our concierge team will contact you shortly to finalize the details.`,
+					`✅ *Service Request Confirmed!*\n\nYour request for *${dealName}* has been received.\n\nOur concierge team will contact you shortly to finalize.`,
 				);
 				await sendWelcomeMenu(phoneNumber, user.name);
 			} catch (err) {
 				await sendTextMessage(
 					phoneNumber,
-					"Sorry, something went wrong with your booking. Please try again later or contact support.",
+					"Booking failed. Please contact support.",
 				);
 			}
 			return;
 		}
 
 		if (choice.toLowerCase() === "back") {
-			user.workflowState = STATES.CONCIERGE_START;
+			user.workflowState = STATES.CONCIERGE_CATEGORY;
 			await user.save();
-			// Trigger re-listing deals logic
-			return handleConciergeFlow(user, "deals");
+			// Re-show categories
+			return handleServiceMenu(user, "service_concierge");
 		}
-	}
-
-	// ── Flight sub-flow ──────────────────────────────────────────────────────
-
-	if (user.workflowState === STATES.CONCIERGE_FLIGHT_ORIGIN) {
-		user.workflowData.set("origin", choice);
-		user.workflowState = STATES.CONCIERGE_FLIGHT_DESTINATION;
-		await user.save();
-		await sendTextMessage(
-			phoneNumber,
-			"Please enter the *Destination City/Airport*:",
-		);
-		return;
-	}
-
-	if (user.workflowState === STATES.CONCIERGE_FLIGHT_DESTINATION) {
-		user.workflowData.set("destination", choice);
-		user.workflowState = STATES.CONCIERGE_FLIGHT_DATE;
-		await user.save();
-		await sendTextMessage(
-			phoneNumber,
-			"Please enter the *Departure Date* (YYYY-MM-DD):",
-		);
-		return;
-	}
-
-	if (user.workflowState === STATES.CONCIERGE_FLIGHT_DATE) {
-		user.workflowData.set("date", choice);
-		user.workflowState = STATES.CONCIERGE_FLIGHT_PASSENGERS;
-		await user.save();
-		await sendTextMessage(phoneNumber, "How many passengers?");
-		return;
-	}
-
-	if (user.workflowState === STATES.CONCIERGE_FLIGHT_PASSENGERS) {
-		const passengers = choice.replace(/\D/g, "") || "1";
-		user.workflowData.set("passengers", passengers);
-		user.workflowState = STATES.CONCIERGE_FLIGHT_CLASS;
-		await user.save();
-		await sendInteractiveMessage(phoneNumber, "Select *Cabin Class*:", [
-			{ id: "economy", title: "Economy" },
-			{ id: "business", title: "Business" },
-			{ id: "first", title: "First Class" },
-		]);
-		return;
-	}
-
-	if (user.workflowState === STATES.CONCIERGE_FLIGHT_CLASS) {
-		const flightClass = choice.toLowerCase();
-		const origin = user.workflowData.get("origin");
-		const destination = user.workflowData.get("destination");
-		const date = user.workflowData.get("date");
-		const passengers = user.workflowData.get("passengers");
-
-		await sendTextMessage(phoneNumber, "Processing your flight request... ✈️");
-
-		const booking = await backendService.createBooking({
-			type: "FLIGHT",
-			phone: phoneNumber,
-			flightDetails: {
-				origin,
-				destination,
-				departureDate: date,
-				passengers: parseInt(passengers, 10),
-				metadata: { cabinClass: flightClass },
-			},
-			specialRequests: `Class: ${flightClass}`,
-			currency: "NGN",
-		});
-
-		if (booking) {
-			await sendTextMessage(
-				phoneNumber,
-				`✅ *Flight Request Received!*\n\nReference: ${booking.id.substring(0, 8)}\nRoute: ${origin} ➡️ ${destination}\n\nOur concierge team will contact you shortly with flight options.`,
-			);
-		} else {
-			await sendTextMessage(
-				phoneNumber,
-				"⚠️ We couldn't process your request automatically. A live agent has been notified.",
-			);
-			user.isLiveChatActive = true;
-			user.workflowState = STATES.PERSONAL_ASSISTANT;
-			await user.save();
-			await autoAssignPA(user);
-			return;
-		}
-
-		user.workflowState = STATES.MAIN_MENU;
-		await user.save();
-		await sendWelcomeMenu(phoneNumber, user.name);
-		return;
-	}
-
-	// ── Emergency funds sub-flow ─────────────────────────────────────────────
-
-	if (user.workflowState === STATES.CONCIERGE_FUND_AMOUNT) {
-		const amount = parseFloat(choice.replace(/[^0-9.]/g, ""));
-		if (isNaN(amount) || amount <= 0) {
-			await sendTextMessage(
-				phoneNumber,
-				"Please enter a valid amount (e.g. 50000).",
-			);
-			return;
-		}
-		user.workflowData.set("amount", String(amount));
-		user.workflowState = STATES.CONCIERGE_FUND_NARRATION;
-		await user.save();
-		await sendTextMessage(
-			phoneNumber,
-			"Please provide a brief reason for the funds (Narration):",
-		);
-		return;
-	}
-
-	if (user.workflowState === STATES.CONCIERGE_FUND_NARRATION) {
-		user.workflowData.set("narration", choice);
-		user.workflowState = STATES.CONCIERGE_FUND_VERIFY;
-		await user.save();
-		await sendTextMessage(
-			phoneNumber,
-			"🔒 *Security Check*\n\nPlease enter the answer to your Security Question to authorize this request:",
-		);
-		return;
-	}
-
-	if (user.workflowState === STATES.CONCIERGE_FUND_VERIFY) {
-		const securityAnswer = choice;
-		const amount = Number(user.workflowData.get("amount"));
-		const narration = user.workflowData.get("narration");
-
-		try {
-			const result = await backendService.initiateTransfer({
-				phone: phoneNumber,
-				securityAnswer,
-				amount,
-				narration: `Concierge: ${narration}`,
-			});
-
-			if (result) {
-				await sendTextMessage(
-					phoneNumber,
-					`*Concierge Request Successful* ✅\n\nYour request for ₦${amount.toLocaleString()} has been processed.\nReference: ${result.reference}`,
-				);
-			} else {
-				throw new Error("Transfer returned no result");
-			}
-		} catch (err) {
-			logger.error("Error in concierge fund transfer", { error: err.message });
-			await sendTextMessage(
-				phoneNumber,
-				"Sorry, your request could not be completed. Please check your balance and security answer, then try again.",
-			);
-		}
-
-		user.workflowState = STATES.MAIN_MENU;
-		await user.save();
-		await sendWelcomeMenu(phoneNumber, user.name);
 	}
 }
 
@@ -1849,6 +1578,88 @@ async function handleReferralWithdrawFlow(user, message) {
 			await handleReferralFlow(user, "start");
 			return;
 		}
+	}
+}
+
+// ─── Emergency Withdrawal Flow ──────────────────────────────────────────────
+
+async function handleWithdrawalFlow(user, message) {
+	const choice = message.trim();
+	const { phoneNumber } = user;
+
+	if (user.workflowState === STATES.WITHDRAWAL_AMOUNT) {
+		const amount = parseFloat(choice.replace(/[^0-9.]/g, ""));
+		if (isNaN(amount) || amount <= 0) {
+			await sendTextMessage(
+				phoneNumber,
+				"Please enter a valid amount (e.g. 50000).",
+			);
+			return;
+		}
+		user.workflowData.set("withdrawalAmount", String(amount));
+		user.workflowState = STATES.WITHDRAWAL_NARRATION;
+		await user.save();
+		await sendTextMessage(
+			phoneNumber,
+			"Please provide a reason for this withdrawal (Narration):",
+		);
+		return;
+	}
+
+	if (user.workflowState === STATES.WITHDRAWAL_NARRATION) {
+		user.workflowData.set("withdrawalNarration", choice);
+		user.workflowState = STATES.WITHDRAWAL_VERIFY;
+		await user.save();
+
+		// Prompt for security answer
+		let prompt =
+			"🔒 *Security Authorization*\n\nPlease enter the answer to your security question to authorize this request:";
+		try {
+			const securityInfo = await backendService.checkUserExists(phoneNumber);
+			if (securityInfo?.securityQuestion) {
+				prompt += `\n\n*"${securityInfo.securityQuestion}"*`;
+			}
+		} catch (err) {}
+		await sendTextMessage(phoneNumber, prompt);
+		return;
+	}
+
+	if (user.workflowState === STATES.WITHDRAWAL_VERIFY) {
+		const securityAnswer = choice;
+		const amount = Number(user.workflowData.get("withdrawalAmount"));
+		const narration = user.workflowData.get("withdrawalNarration");
+
+		await sendTextMessage(
+			phoneNumber,
+			"Verifying and submitting your request... ⏳",
+		);
+
+		try {
+			const result = await backendService.initiateTransfer({
+				phone: phoneNumber,
+				securityAnswer,
+				amount,
+				narration: `Emergency Withdrawal: ${narration}`,
+			});
+
+			if (result) {
+				await sendTextMessage(
+					phoneNumber,
+					`✅ *Request Submitted Successfully!*\n\nAmount: ₦${amount.toLocaleString()}\nReference: ${result.reference}\n\nOur admin team has received your request and will process it manually. You will be notified once completed. 🥂`,
+				);
+			} else {
+				throw new Error("Failed to initiate transfer");
+			}
+		} catch (err) {
+			await sendTextMessage(
+				phoneNumber,
+				"❌ Authorization failed or insufficient balance. Please check your details and try again.",
+			);
+		}
+
+		user.workflowState = STATES.MAIN_MENU;
+		await user.save();
+		await sendWelcomeMenu(phoneNumber, user.name);
 	}
 }
 

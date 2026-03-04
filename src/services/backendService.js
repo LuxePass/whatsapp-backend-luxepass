@@ -179,6 +179,55 @@ export async function getListings(params = {}) {
 }
 
 /**
+ * Fetches unique property types from the core backend.
+ * @returns {Promise<Array<string>>}
+ */
+export async function getPropertyTypes() {
+	try {
+		const response = await withRetry(() => apiClient.get("/listings/types"), {
+			label: "getPropertyTypes",
+		});
+		return response.data.success ? response.data.data : [];
+	} catch (err) {
+		logger.error("[backendService] getPropertyTypes failed", {
+			status: err.response?.status,
+			message: err.message,
+		});
+		// Fallback to constants if API fails
+		return [
+			"APARTMENT",
+			"HOUSE",
+			"VILLA",
+			"TOWNHOUSE",
+			"CONDO",
+			"OFFICE",
+			"OTHER",
+		];
+	}
+}
+
+/**
+ * Fetches concierge categories from the core backend.
+ *
+ * @returns {Promise<Array<string>>}
+ */
+export async function getConciergeCategories() {
+	try {
+		const response = await withRetry(
+			() => apiClient.get("/concierge/categories"),
+			{ label: "getConciergeCategories" },
+		);
+		return response.data.success ? response.data.data : [];
+	} catch (err) {
+		logger.error("[backendService] getConciergeCategories failed", {
+			status: err.response?.status,
+			message: err.message,
+		});
+		return ["TRANSPORT", "FLIGHTS", "EVENTS", "LIFESTYLE"];
+	}
+}
+
+/**
  * Fetches concierge items from the core backend.
  *
  * @param {Object} params - Query parameters (category, search, etc.)
@@ -425,4 +474,6 @@ export default {
 	getAllPAs,
 	assignUserToPA,
 	getConciergeItems,
+	getPropertyTypes,
+	getConciergeCategories,
 };
