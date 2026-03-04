@@ -46,6 +46,8 @@ const STATES = {
 	CONCIERGE_FUND_AMOUNT: "CONCIERGE_FUND_AMOUNT",
 	CONCIERGE_FUND_NARRATION: "CONCIERGE_FUND_NARRATION",
 	CONCIERGE_FUND_VERIFY: "CONCIERGE_FUND_VERIFY",
+	CONCIERGE_DEALS: "CONCIERGE_DEALS",
+	CONCIERGE_BOOKING: "CONCIERGE_BOOKING",
 
 	// Other
 	PERSONAL_ASSISTANT: "PERSONAL_ASSISTANT",
@@ -102,7 +104,7 @@ async function sendWelcomeMenu(to, name) {
 					{
 						id: "services",
 						title: "🚀 Services",
-						description: "Bookings & Concierge",
+						description: "Bookings, Deals & More",
 					},
 					{
 						id: "wallet_menu",
@@ -170,8 +172,8 @@ async function sendServicesMenu(to) {
 		"*LuxePass Services* 🚀\n\nWhat would you like to do today?",
 		[
 			{ id: "1", title: "🏨 Bookings" },
-			{ id: "2", title: "🚗 Concierge" },
-			{ id: "menu", title: "⬅️ Back" },
+			{ id: "2", title: "🌟 Explore Deals" },
+			{ id: "3", title: "💸 Withdrawal" },
 		],
 	);
 }
@@ -636,22 +638,25 @@ async function handleMainMenu(user, message) {
 		}
 
 		case "2": {
-			// Concierge
+			// Explore Deals (Concierge)
 			user.workflowData = new Map();
 			if (user.email) user.workflowData.set("email", user.email);
 			user.workflowState = STATES.CONCIERGE_START;
 			await user.save();
 
-			await sendInteractiveMessage(
-				user.phoneNumber,
-				"*Concierge Services* 🛎️\n\nHow can we assist you today?",
-				[
-					{ id: "transport", title: "🚗 Transport / Flight" },
-					{ id: "funds", title: "💸 Emergency Funds" },
-					{ id: "menu", title: "⬅️ Back" },
-				],
-			);
-			break;
+			// Directly show deals instead of sub-menu
+			return handleConciergeFlow(user, "deals");
+		}
+
+		case "3": {
+			// Emergency Withdrawal (Concierge)
+			user.workflowData = new Map();
+			if (user.email) user.workflowData.set("email", user.email);
+			user.workflowState = STATES.CONCIERGE_START;
+			await user.save();
+
+			// Directly show funds/withdrawal instead of sub-menu
+			return handleConciergeFlow(user, "funds");
 		}
 
 		case "wallet_menu":
@@ -999,12 +1004,39 @@ async function handleConciergeFlow(user, message) {
 			return;
 		}
 
-		if (selection === "funds" || selection === "2") {
+		if (selection === "deals" || selection === "2") {
+			const items = await backendService.getConciergeItems({ limit: 10 });
+			
+			if (!items || items.length === 0) {
+				await sendTextMessage(phoneNumber, "No concierge deals available at the moment. Please check back later!");
+				return;
+			}
+
+			user.workflowState = STATES.CONCIERGE_DEALS;
+			await user.save();
+
+			const rows = items.map(item => ({
+				id: item.id,
+				title: item.name,
+				description: `${item.currency} ${item.price} - ${item.category}`
+			}));
+
+			await sendListMessage(
+				phoneNumber,
+				"🌟 *Exclusive Concierge Deals*\n\nSelect a deal to view details and book:",
+				"View Deals",
+				[{ title: "Available Deals", rows }],
+				"Concierge Deals 🛎️"
+			);
+			return;
+		}
+
+		if (selection === "funds" || selection === "3") {
 			user.workflowState = STATES.CONCIERGE_FUND_AMOUNT;
 			await user.save();
 			await sendTextMessage(
 				phoneNumber,
-				"*Emergency Funds* 💸\n\nHow much would you like to request? (in NGN, e.g. 50000)",
+				"*Emergency Withdrawal* 💸\n\nHow much would you like to request? (in NGN, e.g. 50000)",
 			);
 			return;
 		}
@@ -1098,6 +1130,73 @@ async function handleConciergeFlow(user, message) {
 			guestCount: parseInt(passengers, 10),
 			currency: "NGN",
 		});
+		return;
+	}
+
+	if (user.workflowState === STATES.CONCIERGE_DEALS) {
+		const itemId = choice;
+		const items = await backendService.getConciergeItems({ limit: 50 }); // Simple find for now
+		const item = items.find(i => i.id === itemId);
+
+		if (!item) {
+			await sendTextMessage(phoneNumber, "Invalid selection. Please try again.");
+			return;
+		}
+
+		user.workflowData.set("selectedDealId", item.id);
+		user.workflowData.set("selectedDealName", item.name);
+		user.workflowState = STATES.CONCIERGE_BOOKING;
+		await user.save();
+
+		await sendInteractiveMessage(
+			phoneNumber,
+			`*${item.name}* 🌟\n\n${item.description || "No description available."}\n\n*Price:* ${item.currency} ${item.price}\n*Category:* ${item.category}\n\nWould you like to book this deal?`,
+			[
+				{ id: "confirm", title: "✅ Confirm Booking" },
+				{ id: "back", title: "🔙 Back to Deals" }
+			]
+		);
+		return;
+	}
+
+	if (user.workflowState === STATES.CONCIERGE_BOOKING) {
+		if (choice.toLowerCase() === "confirm") {
+			const dealName = user.workflowData.get("selectedDealName");
+			
+			await sendTextMessage(phoneNumber, "Processing your booking... ⏳");
+
+			try {
+				await backendService.createBooking({
+					type: "CONCIERGE",
+					phone: phoneNumber,
+					specialRequests: `CONCIERGE DEAL: ${dealName}`,
+					checkIn: new Date().toISOString().split("T")[0],
+					checkOut: new Date(Date.now() + 86_400_000).toISOString().split("T")[0],
+					guestCount: 1,
+					currency: "NGN",
+				});
+
+				user.workflowState = STATES.MAIN_MENU;
+				await user.save();
+
+				await sendTextMessage(
+					phoneNumber,
+					`✅ Your booking for *${dealName}* has been received! Our concierge team will contact you shortly to finalize the details.`
+				);
+				await sendWelcomeMenu(phoneNumber, user.name);
+			} catch (err) {
+				await sendTextMessage(phoneNumber, "Sorry, something went wrong with your booking. Please try again later or contact support.");
+			}
+			return;
+		}
+
+		if (choice.toLowerCase() === "back") {
+			user.workflowState = STATES.CONCIERGE_START;
+			await user.save();
+			// Trigger re-listing deals logic
+			return handleConciergeFlow(user, "deals");
+		}
+	}
 
 		if (booking) {
 			await sendTextMessage(
@@ -1297,9 +1396,11 @@ async function handleReferralFlow(user, message) {
 		await user.save();
 	}
 
+	const referralLink = `https://wa.me/your_bot_number?text=Hi, I want to join LuxePass using referral code ${user.referralCode}`;
+
 	await sendTextMessage(
 		user.phoneNumber,
-		`*Referral Program* 🎁\n\nInvite friends to LuxePass and earn rewards!\n\n*Your Referral Code:* *${user.referralCode}*\n\n*Earnings Summary* 💰\nTotal Earned: ₦${(user.rewardsEarned || 0).toLocaleString()}\nMin Withdrawal: ₦2,000\n\n*How to Withdraw* 🏦\nOnce you reach the minimum balance, reply with *WITHDRAW* or contact our concierge via this chat to process your payout.\n\nShare your code with friends today! 🚀`,
+		`*Referral Program* 🎁\n\nInvite friends to LuxePass and earn rewards!\n\n*Your Referral Link:* ${referralLink}\n\n*Earnings Summary* 💰\nTotal Earned: ₦${(user.rewardsEarned || 0).toLocaleString()}\nMin Withdrawal: ₦2,000\n\n*How to Withdraw* 🏦\nOnce you reach the minimum balance, reply with *WITHDRAW* or contact our concierge via this chat to process your payout.\n\nShare your link with friends today! 🚀`,
 	);
 
 	user.workflowState = STATES.MAIN_MENU;

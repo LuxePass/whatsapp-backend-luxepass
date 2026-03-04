@@ -179,6 +179,32 @@ export async function getListings(params = {}) {
 }
 
 /**
+ * Fetches concierge items from the core backend.
+ *
+ * @param {Object} params - Query parameters (category, search, etc.)
+ * @returns {Promise<Array>}
+ */
+export async function getConciergeItems(params = {}) {
+	const queryString = new URLSearchParams({
+		...params,
+		isActive: true,
+	}).toString();
+	try {
+		const response = await withRetry(
+			() => apiClient.get(`/concierge?${queryString}`),
+			{ label: "getConciergeItems" },
+		);
+		return response.data.success ? (response.data.data.data ?? []) : [];
+	} catch (err) {
+		logger.error("[backendService] getConciergeItems failed", {
+			status: err.response?.status,
+			message: err.message,
+		});
+		return [];
+	}
+}
+
+/**
  * Fetches a single listing by its ID.
  *
  * @param {string} id
@@ -398,4 +424,5 @@ export default {
 	initiateTransfer,
 	getAllPAs,
 	assignUserToPA,
+	getConciergeItems,
 };
