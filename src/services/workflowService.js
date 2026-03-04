@@ -677,6 +677,18 @@ async function handleServiceMenu(user, message) {
 
 			try {
 				const categories = await backendService.getPropertyTypes();
+
+				if (!categories || categories.length === 0) {
+					await sendTextMessage(
+						user.phoneNumber,
+						"No property categories are available at the moment. Please check back later.",
+					);
+					user.workflowState = STATES.MAIN_MENU;
+					await user.save();
+					await sendWelcomeMenu(user.phoneNumber, user.name);
+					return;
+				}
+
 				const categoryRows = categories.map((cat) => ({
 					id: cat,
 					title: cat.charAt(0) + cat.slice(1).toLowerCase(),
@@ -706,6 +718,18 @@ async function handleServiceMenu(user, message) {
 
 			try {
 				const categories = await backendService.getConciergeCategories();
+
+				if (!categories || categories.length === 0) {
+					await sendTextMessage(
+						user.phoneNumber,
+						"No concierge categories are available right now. Please try again later.",
+					);
+					user.workflowState = STATES.MAIN_MENU;
+					await user.save();
+					await sendWelcomeMenu(user.phoneNumber, user.name);
+					return;
+				}
+
 				const categoryRows = categories.map((cat) => ({
 					id: `concierge_cat_${cat}`,
 					title: cat,
