@@ -1006,19 +1006,22 @@ async function handleConciergeFlow(user, message) {
 
 		if (selection === "deals" || selection === "2") {
 			const items = await backendService.getConciergeItems({ limit: 10 });
-			
+
 			if (!items || items.length === 0) {
-				await sendTextMessage(phoneNumber, "No concierge deals available at the moment. Please check back later!");
+				await sendTextMessage(
+					phoneNumber,
+					"No concierge deals available at the moment. Please check back later!",
+				);
 				return;
 			}
 
 			user.workflowState = STATES.CONCIERGE_DEALS;
 			await user.save();
 
-			const rows = items.map(item => ({
+			const rows = items.map((item) => ({
 				id: item.id,
 				title: item.name,
-				description: `${item.currency} ${item.price} - ${item.category}`
+				description: `${item.currency} ${item.price} - ${item.category}`,
 			}));
 
 			await sendListMessage(
@@ -1026,7 +1029,7 @@ async function handleConciergeFlow(user, message) {
 				"🌟 *Exclusive Concierge Deals*\n\nSelect a deal to view details and book:",
 				"View Deals",
 				[{ title: "Available Deals", rows }],
-				"Concierge Deals 🛎️"
+				"Concierge Deals 🛎️",
 			);
 			return;
 		}
@@ -1122,81 +1125,18 @@ async function handleConciergeFlow(user, message) {
 		await sendTextMessage(phoneNumber, "Processing your request... ⏳");
 
 		const booking = await backendService.createBooking({
-			type: "SHORTLET",
+			type: "TRANSPORT",
 			phone: phoneNumber,
-			specialRequests: `TRANSPORT (${transportType.toUpperCase()}): Pickup: ${pickup}, Drop-off: ${dropoff}, Date: ${date}, Pax: ${passengers}`,
-			checkIn: new Date().toISOString().split("T")[0],
-			checkOut: new Date(Date.now() + 86_400_000).toISOString().split("T")[0],
+			transportDetails: {
+				transportType,
+				pickup,
+				dropoff,
+				date,
+			},
+			specialRequests: `Type: ${transportType}, Pickup: ${pickup}, Dropoff: ${dropoff}, Date: ${date}`,
 			guestCount: parseInt(passengers, 10),
 			currency: "NGN",
 		});
-		return;
-	}
-
-	if (user.workflowState === STATES.CONCIERGE_DEALS) {
-		const itemId = choice;
-		const items = await backendService.getConciergeItems({ limit: 50 }); // Simple find for now
-		const item = items.find(i => i.id === itemId);
-
-		if (!item) {
-			await sendTextMessage(phoneNumber, "Invalid selection. Please try again.");
-			return;
-		}
-
-		user.workflowData.set("selectedDealId", item.id);
-		user.workflowData.set("selectedDealName", item.name);
-		user.workflowState = STATES.CONCIERGE_BOOKING;
-		await user.save();
-
-		await sendInteractiveMessage(
-			phoneNumber,
-			`*${item.name}* 🌟\n\n${item.description || "No description available."}\n\n*Price:* ${item.currency} ${item.price}\n*Category:* ${item.category}\n\nWould you like to book this deal?`,
-			[
-				{ id: "confirm", title: "✅ Confirm Booking" },
-				{ id: "back", title: "🔙 Back to Deals" }
-			]
-		);
-		return;
-	}
-
-	if (user.workflowState === STATES.CONCIERGE_BOOKING) {
-		if (choice.toLowerCase() === "confirm") {
-			const dealName = user.workflowData.get("selectedDealName");
-			
-			await sendTextMessage(phoneNumber, "Processing your booking... ⏳");
-
-			try {
-				await backendService.createBooking({
-					type: "CONCIERGE",
-					phone: phoneNumber,
-					specialRequests: `CONCIERGE DEAL: ${dealName}`,
-					checkIn: new Date().toISOString().split("T")[0],
-					checkOut: new Date(Date.now() + 86_400_000).toISOString().split("T")[0],
-					guestCount: 1,
-					currency: "NGN",
-				});
-
-				user.workflowState = STATES.MAIN_MENU;
-				await user.save();
-
-				await sendTextMessage(
-					phoneNumber,
-					`✅ Your booking for *${dealName}* has been received! Our concierge team will contact you shortly to finalize the details.`
-				);
-				await sendWelcomeMenu(phoneNumber, user.name);
-			} catch (err) {
-				await sendTextMessage(phoneNumber, "Sorry, something went wrong with your booking. Please try again later or contact support.");
-			}
-			return;
-		}
-
-		if (choice.toLowerCase() === "back") {
-			user.workflowState = STATES.CONCIERGE_START;
-			await user.save();
-			// Trigger re-listing deals logic
-			return handleConciergeFlow(user, "deals");
-		}
-	}
 
 		if (booking) {
 			await sendTextMessage(
@@ -1219,6 +1159,74 @@ async function handleConciergeFlow(user, message) {
 		await user.save();
 		await sendWelcomeMenu(phoneNumber, user.name);
 		return;
+	}
+
+	if (user.workflowState === STATES.CONCIERGE_DEALS) {
+		const itemId = choice;
+		const items = await backendService.getConciergeItems({ limit: 50 }); // Simple find for now
+		const item = items.find((i) => i.id === itemId);
+
+		if (!item) {
+			await sendTextMessage(phoneNumber, "Invalid selection. Please try again.");
+			return;
+		}
+
+		user.workflowData.set("selectedDealId", item.id);
+		user.workflowData.set("selectedDealName", item.name);
+		user.workflowState = STATES.CONCIERGE_BOOKING;
+		await user.save();
+
+		await sendInteractiveMessage(
+			phoneNumber,
+			`*${item.name}* 🌟\n\n${item.description || "No description available."}\n\n*Price:* ${item.currency} ${item.price}\n*Category:* ${item.category}\n\nWould you like to book this deal?`,
+			[
+				{ id: "confirm", title: "✅ Confirm Booking" },
+				{ id: "back", title: "🔙 Back to Deals" },
+			],
+		);
+		return;
+	}
+
+	if (user.workflowState === STATES.CONCIERGE_BOOKING) {
+		if (choice.toLowerCase() === "confirm") {
+			const dealName = user.workflowData.get("selectedDealName");
+
+			await sendTextMessage(phoneNumber, "Processing your booking... ⏳");
+
+			try {
+				await backendService.createBooking({
+					type: "CONCIERGE",
+					phone: phoneNumber,
+					specialRequests: `CONCIERGE DEAL: ${dealName}`,
+					checkIn: new Date().toISOString().split("T")[0],
+					checkOut: new Date(Date.now() + 86_400_000).toISOString().split("T")[0],
+					guestCount: 1,
+					currency: "NGN",
+				});
+
+				user.workflowState = STATES.MAIN_MENU;
+				await user.save();
+
+				await sendTextMessage(
+					phoneNumber,
+					`✅ Your booking for *${dealName}* has been received! Our concierge team will contact you shortly to finalize the details.`,
+				);
+				await sendWelcomeMenu(phoneNumber, user.name);
+			} catch (err) {
+				await sendTextMessage(
+					phoneNumber,
+					"Sorry, something went wrong with your booking. Please try again later or contact support.",
+				);
+			}
+			return;
+		}
+
+		if (choice.toLowerCase() === "back") {
+			user.workflowState = STATES.CONCIERGE_START;
+			await user.save();
+			// Trigger re-listing deals logic
+			return handleConciergeFlow(user, "deals");
+		}
 	}
 
 	// ── Flight sub-flow ──────────────────────────────────────────────────────
