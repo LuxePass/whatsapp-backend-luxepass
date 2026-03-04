@@ -179,7 +179,6 @@ async function sendServicesMenu(to) {
 				],
 			},
 		],
-		"LuxePass Services 💎",
 	);
 }
 
@@ -1136,7 +1135,7 @@ async function handleReferralFlow(user, message) {
 		await user.save();
 	}
 
-	const referralLink = `https://wa.me/your_bot_number?text=Hi, I want to join LuxePass using referral code ${user.referralCode}`;
+	const referralLink = `https://wa.me/${process.env.WHATSAPP_PHONE_NUMBER}?text=Hi, I want to join LuxePass using referral code ${user.referralCode}`;
 
 	await sendTextMessage(
 		user.phoneNumber,
