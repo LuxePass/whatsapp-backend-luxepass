@@ -37,6 +37,7 @@ const STATES = {
 	// Concierge (Simplified & Restructured)
 	CONCIERGE_CATEGORY: "CONCIERGE_CATEGORY",
 	CONCIERGE_DEALS: "CONCIERGE_DEALS",
+	CONCIERGE_DETAILS: "CONCIERGE_DETAILS",
 	CONCIERGE_BOOKING: "CONCIERGE_BOOKING",
 
 	// Emergency Withdrawal
@@ -559,6 +560,7 @@ async function routeWorkflowState(user, message) {
 	const conciergeStates = new Set([
 		STATES.CONCIERGE_CATEGORY,
 		STATES.CONCIERGE_DEALS,
+		STATES.CONCIERGE_DETAILS,
 		STATES.CONCIERGE_BOOKING,
 	]);
 
@@ -1084,15 +1086,31 @@ async function handleConciergeFlow(user, message) {
 		user.workflowData.set("selectedDealId", item.id);
 		user.workflowData.set("selectedDealName", item.name);
 		user.workflowData.set("selectedDealPrice", String(item.price));
+		user.workflowState = STATES.CONCIERGE_DETAILS;
+		await user.save();
+
+		await sendTextMessage(
+			phoneNumber,
+			`*${item.name}* 🌟\n\n${item.description || "No description available."}\n\n*Price:* ${item.currency} ${Number(item.price).toLocaleString()}\n\nPlease reply with your specific requirements for this service (e.g., date, time, location, or any other preferences):`,
+		);
+		return;
+	}
+
+	// Specific Details Prompt
+	if (user.workflowState === STATES.CONCIERGE_DETAILS) {
+		const details = choice;
+		user.workflowData.set("conciergeDetails", details);
 		user.workflowState = STATES.CONCIERGE_BOOKING;
 		await user.save();
 
+		const dealName = user.workflowData.get("selectedDealName");
+
 		await sendInteractiveMessage(
 			phoneNumber,
-			`*${item.name}* 🌟\n\n${item.description || "No description available."}\n\n*Price:* ${item.currency} ${Number(item.price).toLocaleString()}\n\nWould you like to proceed with this service?`,
+			`You've selected: *${dealName}*\n\nYour requirements: _${details}_\n\nWould you like to proceed with this service request?`,
 			[
-				{ id: "confirm", title: "✅ Proceed to Payment" },
-				{ id: "back", title: "🔙 Back" },
+				{ id: "confirm", title: "✅ Proceed to Booking" },
+				{ id: "back", title: "🔙 Back to Categories" },
 			],
 		);
 		return;
@@ -1102,14 +1120,17 @@ async function handleConciergeFlow(user, message) {
 	if (user.workflowState === STATES.CONCIERGE_BOOKING) {
 		if (choice.toLowerCase() === "confirm") {
 			const dealName = user.workflowData.get("selectedDealName");
+			const details = user.workflowData.get("conciergeDetails");
 
-			await sendTextMessage(phoneNumber, "Redirecting to payment... ⏳");
+			await sendTextMessage(phoneNumber, "Redirecting to booking... ⏳");
 
 			try {
 				await backendService.createBooking({
 					type: "CONCIERGE",
 					phone: phoneNumber,
-					specialRequests: `CONCIERGE SERVICE: ${dealName}`,
+					specialRequests: `CONCIERGE SERVICE: ${dealName} | DETAILS: ${details}`,
+					// Using today's date as checkIn since the core backend might strictly require checkIn/checkOut format
+					// though the backend validator only enforces it for SHORTLET. To be safe, providing a dummy date.
 					checkIn: new Date().toISOString().split("T")[0],
 					guestCount: 1,
 					currency: "NGN",
@@ -1120,7 +1141,7 @@ async function handleConciergeFlow(user, message) {
 
 				await sendTextMessage(
 					phoneNumber,
-					`✅ *Service Request Confirmed!*\n\nYour request for *${dealName}* has been received.\n\nOur concierge team will contact you shortly to finalize.`,
+					`✅ *Service Request Confirmed!*\n\nYour request for *${dealName}* has been received.\n\nOur concierge team will review your requirements and contact you shortly to finalize.`,
 				);
 				await sendWelcomeMenu(phoneNumber, user.name);
 			} catch (err) {
