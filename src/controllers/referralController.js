@@ -8,6 +8,33 @@ export const getReferralStats = async (req, res) => {
 			referredBy: { $exists: true, $ne: null },
 		});
 
+		const now = new Date();
+		const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+		const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+		const prevMonthEnd = new Date(currentMonthStart.getTime() - 1);
+
+		const currentMonthReferrals = await User.countDocuments({
+			referredBy: { $exists: true, $ne: null },
+			createdAt: { $gte: currentMonthStart },
+		});
+
+		const prevMonthReferrals = await User.countDocuments({
+			referredBy: { $exists: true, $ne: null },
+			createdAt: { $gte: prevMonthStart, $lte: prevMonthEnd },
+		});
+
+		let growthPercentage = 0;
+		if (prevMonthReferrals === 0) {
+			growthPercentage = currentMonthReferrals > 0 ? 100 : 0;
+		} else {
+			growthPercentage = Number(
+				(
+					((currentMonthReferrals - prevMonthReferrals) / prevMonthReferrals) *
+					100
+				).toFixed(1),
+			);
+		}
+
 		// Get top referrers
 		const topReferrers = await User.aggregate([
 			{
@@ -85,6 +112,10 @@ export const getReferralStats = async (req, res) => {
 					totalReferrals,
 					totalRewardsEarned:
 						rewardStats.length > 0 ? rewardStats[0].totalRewardsEarned : 0,
+				},
+				stats: {
+					conversionRate: 100, // Assuming 100% since everyone counted has signed up
+					growthPercentage: growthPercentage,
 				},
 				topReferrers: referrersWithDetails,
 				activities: activities,
