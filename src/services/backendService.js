@@ -506,19 +506,30 @@ export async function getActivePAsForAssignment() {
 }
 
 /**
- * Assigns a user to a Personal Assistant.
+ * Assigns a user to a Personal Assistant via internal endpoint (no PA JWT).
+ * Uses the same secret as getActivePAsForAssignment.
  *
  * @param {string} paId    - PA's ID
  * @param {string} userId  - Client's core user ID (UUID)
  * @returns {Promise<boolean>}
  */
 export async function assignUserToPA(paId, userId) {
+	const secret = process.env.CORE_BACKEND_INTERNAL_SECRET || process.env.WHATSAPP_BACKEND_SECRET;
+	if (!secret) {
+		logger.error("[backendService] assignUserToPA: CORE_BACKEND_INTERNAL_SECRET not set");
+		return false;
+	}
 	try {
 		const response = await withRetry(
-			() => apiClient.post(`/pas/${paId}/assign`, { userId }),
+			() =>
+				apiClient.post(
+					"/pas/assign-internal",
+					{ paId, userId },
+					{ headers: { "x-whatsapp-backend-secret": secret } },
+				),
 			{ retries: 2, label: `assignUserToPA(${paId})` },
 		);
-		return Boolean(response.data.success);
+		return Boolean(response.data?.success);
 	} catch (err) {
 		logger.error("[backendService] assignUserToPA failed", {
 			paId,
