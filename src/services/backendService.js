@@ -20,12 +20,13 @@ const apiClient = axios.create({
 
 /**
  * HTTP status codes that indicate a transient server problem worth retrying.
- * 502 Bad Gateway, 503 Service Unavailable, 504 Gateway Timeout.
+ * 429 Too Many Requests, 502 Bad Gateway, 503 Service Unavailable, 504 Gateway Timeout.
  */
-const RETRYABLE_STATUSES = new Set([502, 503, 504]);
+const RETRYABLE_STATUSES = new Set([429, 502, 503, 504]);
 
 /**
  * Executes `fn` with automatic retry on transient gateway errors.
+ * For 429, uses Retry-After header if present, otherwise 5s base delay.
  *
  * @param {() => Promise<any>} fn      - Async function to attempt
  * @param {object}             opts
@@ -51,7 +52,13 @@ async function withRetry(
 				throw err; // not retryable, or we've exhausted retries — propagate
 			}
 
-			const delay = baseDelay * Math.pow(2, attempt - 1); // 800ms, 1600ms, 3200ms
+			let delay = baseDelay * Math.pow(2, attempt - 1);
+			if (status === 429) {
+				const retryAfter = err.response?.headers?.["retry-after"];
+				delay = retryAfter != null
+					? Math.max(2000, parseInt(retryAfter, 10) * 1000)
+					: Math.max(5000, delay);
+			}
 			logger.warn(
 				`[backendService] ${label} — ${status ?? "network error"} on attempt ${attempt}/${retries}, retrying in ${delay}ms`,
 			);
@@ -472,10 +479,16 @@ export async function getAllPAs() {
 	}
 }
 
+// ─── Active PAs cache (reduces 429 rate-limit hits) ─────────────────────────────
+
+const ACTIVE_PAS_CACHE_TTL_MS = 90_000; // 90 seconds — reduces 429 from core backend
+let activePasCache = { list: null, expiresAt: 0 };
+
 /**
  * Retrieves active PAs for live-chat assignment. Uses internal secret so WhatsApp
  * backend can call without PA JWT. Set WHATSAPP_BACKEND_SECRET in core backend
  * and CORE_BACKEND_INTERNAL_SECRET in this app to the same value.
+ * Results are cached briefly to avoid 429 rate limits under load.
  *
  * @returns {Promise<Array<{ id: string, name: string }>>}
  */
@@ -485,18 +498,30 @@ export async function getActivePAsForAssignment() {
 		logger.warn("[backendService] CORE_BACKEND_INTERNAL_SECRET (or WHATSAPP_BACKEND_SECRET) not set; PA assignment may fail");
 		return [];
 	}
+	const now = Date.now();
+	if (activePasCache.list && activePasCache.expiresAt > now) {
+		return activePasCache.list;
+	}
 	try {
 		const response = await withRetry(
 			() =>
 				apiClient.get("/pas/active-for-assignment", {
 					headers: { "x-whatsapp-backend-secret": secret },
 				}),
-			{ label: "getActivePAsForAssignment" }
+			{ label: "getActivePAsForAssignment", retries: 4, baseDelay: 3000 }
 		);
 		const data = response.data?.data ?? response.data;
-		const list = Array.isArray(data) ? data : data?.data;
-		return list ?? [];
+		const list = Array.isArray(data) ? data : data?.data ?? [];
+		activePasCache = { list, expiresAt: now + ACTIVE_PAS_CACHE_TTL_MS };
+		return list;
 	} catch (err) {
+		// On failure, reuse stale cache if we have one (better than no PAs)
+		if (activePasCache.list && activePasCache.list.length > 0) {
+			logger.warn("[backendService] getActivePAsForAssignment failed, using stale cache", {
+				status: err.response?.status,
+			});
+			return activePasCache.list;
+		}
 		logger.error("[backendService] getActivePAsForAssignment failed", {
 			status: err.response?.status,
 			message: err.message,
