@@ -500,6 +500,32 @@ export async function handleWorkflow(from, message, name) {
 		// ── Existing user: live chat active — hands off to human agent ────────────
 		if (user.isLiveChatActive) return;
 
+		// ── Live chat request at any point in conversation (works alongside bot) ───
+		const loweredForLiveChat = message.toLowerCase().trim();
+		const isLiveChatRequest =
+			loweredForLiveChat.includes("live chat") ||
+			loweredForLiveChat.includes("human") ||
+			loweredForLiveChat.includes("support") ||
+			loweredForLiveChat.includes("agent") ||
+			loweredForLiveChat.includes("talk to someone") ||
+			loweredForLiveChat.includes("real person");
+		if (isLiveChatRequest) {
+			const previousState = user.workflowState;
+			user.isLiveChatActive = true;
+			user.workflowState = STATES.PERSONAL_ASSISTANT;
+			await user.save();
+			await autoAssignPA(user);
+			await sendTextMessage(
+				user.phoneNumber,
+				`*Personal Assistant* 👤\n\nConnecting you with a Live Agent...\nPlease wait, one of our specialists will be with you shortly. You can continue using the bot anytime by typing *Menu*.`,
+			);
+			logger.info("User requested live chat during conversation", {
+				phoneNumber: user.phoneNumber,
+				previousState,
+			});
+			return;
+		}
+
 		// ── Global reset commands ─────────────────────────────────────────────────
 		const lowered = message.toLowerCase().trim();
 		const isMenuCommand =
@@ -795,9 +821,14 @@ async function handleBookingFlow(user, message) {
 		});
 
 		if (!listings || listings.length === 0) {
+			user.workflowState = STATES.PERSONAL_ASSISTANT;
+			user.isLiveChatActive = true;
+			user.workflowData = new Map();
+			await user.save();
+			await autoAssignPA(user);
 			await sendTextMessage(
 				phoneNumber,
-				`Sorry, no ${propertyType}s are available right now. Type *Menu* to restart.`,
+				`Sorry, no ${propertyType}s are available right now. We're connecting you with our customer service so they can help you find something or take your request. Please wait, an agent will be with you shortly.`,
 			);
 			return;
 		}
