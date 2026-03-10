@@ -6,6 +6,7 @@ import {
 import { addMessage } from "../utils/messageStorage.js";
 import logger from "../config/logger.js";
 import User from "../models/User.js";
+import * as backendService from "../services/backendService.js";
 
 /**
  * Send a message via WhatsApp
@@ -22,6 +23,9 @@ export async function sendMessage(req, res) {
 			templateName,
 			languageCode,
 			components,
+			link,
+			listingId,
+			summary,
 		} = req.body;
 
 		logger.info("Send message request received", {
@@ -94,10 +98,80 @@ export async function sendMessage(req, res) {
 				);
 				break;
 
+			case "offer": {
+				const user = await User.findOne({ phoneNumber: to.replace(/\D/g, "") });
+				if (!user || !user.isLiveChatActive) {
+					return res.status(403).json({
+						success: false,
+						error: {
+							message: "Cannot send message. User has not requested live support.",
+							code: 403,
+						},
+					});
+				}
+				const offerText = link ? `${message}\n\n${link}` : message;
+				result = await sendTextMessage(to, offerText);
+				if (result.success && mediaUrl) {
+					const imgResult = await sendMediaMessage(to, mediaUrl, "image", caption);
+					if (!imgResult.success) result = imgResult;
+				}
+				break;
+			}
+
+			case "listing": {
+				const user = await User.findOne({ phoneNumber: to.replace(/\D/g, "") });
+				if (!user || !user.isLiveChatActive) {
+					return res.status(403).json({
+						success: false,
+						error: {
+							message: "Cannot send message. User has not requested live support.",
+							code: 403,
+						},
+					});
+				}
+				const listing = await backendService.getListingById(listingId);
+				if (!listing) {
+					return res.status(404).json({
+						success: false,
+						error: { message: "Listing not found", code: 404 },
+					});
+				}
+				const symbol = listing.currency === "USD" ? "$" : "₦";
+				const priceStr = `${symbol}${Number(listing.pricePerNight || 0).toLocaleString()}/night`;
+				const listingText = `*${listing.name || "Listing"}*\n\n${listing.description || ""}\n\n${priceStr}${listing.city ? ` · ${listing.city}` : ""}`;
+				if (listing.media && listing.media.length > 0 && listing.media[0].url) {
+					result = await sendMediaMessage(
+						to,
+						listing.media[0].url,
+						"image",
+						listingText,
+					);
+				} else {
+					result = await sendTextMessage(to, listingText);
+				}
+				break;
+			}
+
+			case "booking_suggestion": {
+				const user = await User.findOne({ phoneNumber: to.replace(/\D/g, "") });
+				if (!user || !user.isLiveChatActive) {
+					return res.status(403).json({
+						success: false,
+						error: {
+							message: "Cannot send message. User has not requested live support.",
+							code: 403,
+						},
+					});
+				}
+				const suggestionText = message || summary || "";
+				result = await sendTextMessage(to, suggestionText);
+				break;
+			}
+
 			default:
 				return res.status(400).json({
 					success: false,
-					error: `Invalid message type: ${type}. Supported types: text, image, video, document, audio, template`,
+					error: `Invalid message type: ${type}. Supported types: text, image, video, document, audio, template, offer, listing, booking_suggestion`,
 				});
 		}
 

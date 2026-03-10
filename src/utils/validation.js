@@ -12,7 +12,17 @@ const phoneNumberSchema = z
 // Send message request schema
 export const sendMessageSchema = z.object({
 	to: phoneNumberSchema,
-	type: z.enum(["text", "image", "video", "document", "audio", "template"]),
+	type: z.enum([
+		"text",
+		"image",
+		"video",
+		"document",
+		"audio",
+		"template",
+		"offer",
+		"listing",
+		"booking_suggestion",
+	]),
 	message: z.string().optional(),
 	mediaUrl: z.string().url().optional(),
 	caption: z.string().optional(),
@@ -20,22 +30,24 @@ export const sendMessageSchema = z.object({
 	templateName: z.string().optional(),
 	languageCode: z.string().length(2).optional().default("en"),
 	components: z.array(z.any()).optional(),
+	// offer: text + optional image + optional link
+	link: z.string().url().optional(),
+	// listing: send listing summary with image, description, price
+	listingId: z.string().optional(),
+	// booking_suggestion: pre-filled summary text
+	summary: z.string().optional(),
 }).refine(
 	(data) => {
-		if (data.type === "text" && !data.message) {
+		if (data.type === "text" && !data.message) return false;
+		if (["image", "video", "document", "audio"].includes(data.type) && !data.mediaUrl)
 			return false;
-		}
-		if (["image", "video", "document", "audio"].includes(data.type) && !data.mediaUrl) {
-			return false;
-		}
-		if (data.type === "template" && !data.templateName) {
-			return false;
-		}
+		if (data.type === "template" && !data.templateName) return false;
+		if (data.type === "offer" && !data.message) return false;
+		if (data.type === "listing" && !data.listingId) return false;
+		if (data.type === "booking_suggestion" && !data.message && !data.summary) return false;
 		return true;
 	},
-	{
-		message: "Missing required fields for message type",
-	}
+	{ message: "Missing required fields for message type" },
 );
 
 // Conversation ID schema

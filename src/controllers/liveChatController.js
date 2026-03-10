@@ -1,9 +1,13 @@
 import User from "../models/User.js";
+import Message from "../models/Message.js";
 import { sendTextMessage } from "../services/whatsappService.js";
 import logger from "../config/logger.js";
 
+const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
+
 /**
- * End live chat session for a user
+ * End live chat session for a user.
+ * When called by PA (dashboard): PA may only end after 24 hours of user inactivity.
  */
 export async function endLiveChat(req, res) {
 	try {
@@ -29,6 +33,26 @@ export async function endLiveChat(req, res) {
 				success: false,
 				error: "User does not have an active live chat session",
 			});
+		}
+
+		// PA can only end chat after 24h of user inactivity (this endpoint is called by PA dashboard)
+		const lastUserMessage = await Message.findOne({
+			conversationId: sanitizedPhone,
+			from: { $ne: "sys" },
+		})
+			.sort({ timestamp: -1 })
+			.lean()
+			.exec();
+
+		if (lastUserMessage && lastUserMessage.timestamp) {
+			const elapsed = Date.now() - new Date(lastUserMessage.timestamp).getTime();
+			if (elapsed < TWENTY_FOUR_HOURS_MS) {
+				return res.status(403).json({
+					success: false,
+					error:
+						"PA can only end the chat after 24 hours of user inactivity. Last user message was less than 24 hours ago.",
+				});
+			}
 		}
 
 		// End live chat and reset to main menu

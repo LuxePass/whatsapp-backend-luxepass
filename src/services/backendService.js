@@ -388,7 +388,7 @@ export async function setSecurityQuestion(data) {
 }
 
 /**
- * Initiates a wallet transfer.
+ * Initiates a wallet transfer (internal to business wallet).
  *
  * @param {{ securityAnswer: string, amount: number, narration: string, phone?: string }} data
  * @param {string|null} token - Security verification token (optional)
@@ -406,6 +406,44 @@ export async function initiateTransfer(data, token = null) {
 		return response.data.success ? response.data.data : null;
 	} catch (err) {
 		logger.error("[backendService] initiateTransfer failed", {
+			status: err.response?.status,
+			message: err.response?.data?.error?.message ?? err.message,
+		});
+		return null;
+	}
+}
+
+/**
+ * Creates a pending emergency transfer (user requests transfer to external bank).
+ * Requires security verification (uniqueId + securityAnswer in body).
+ *
+ * @param {{
+ *   phone?: string,
+ *   uniqueId?: string,
+ *   securityAnswer: string,
+ *   amount: number,
+ *   narration?: string,
+ *   destinationAccount: { bankName: string, bankCode: string, accountNumber: string, accountName: string }
+ * }} data
+ * @returns {Promise<Object|null>}
+ */
+export async function createEmergencyTransfer(data) {
+	try {
+		const body = {
+			securityAnswer: data.securityAnswer,
+			amount: data.amount,
+			narration: data.narration,
+			destinationAccount: data.destinationAccount,
+		};
+		if (data.phone != null) body.phone = data.phone;
+		if (data.uniqueId != null) body.uniqueId = data.uniqueId;
+		const response = await withRetry(
+			() => apiClient.post("/transfers/emergency", body),
+			{ retries: 2, label: "createEmergencyTransfer" },
+		);
+		return response.data.success ? response.data.data : null;
+	} catch (err) {
+		logger.error("[backendService] createEmergencyTransfer failed", {
 			status: err.response?.status,
 			message: err.response?.data?.error?.message ?? err.message,
 		});
