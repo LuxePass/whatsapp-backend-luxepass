@@ -1,33 +1,19 @@
-import {
-	sendTextMessage,
-	sendTemplateMessage,
-} from "../services/whatsappService.js";
+import { sendTextMessage } from "../services/whatsappService.js";
 import logger from "../config/logger.js";
 
 /**
- * Send OTP (or any system message) to a user via WhatsApp.
- * Does NOT require live chat to be active - used for OTP, verification codes, etc.
- *
- * Two modes:
- * 1) Plain text: { to, message } - only delivered inside 24h session window.
- * 2) Template (for delivery outside 24h): { to, templateName, templateBodyParams, templateLanguage? }
- *    Template must be approved in Meta Business Manager. Example body: "Your code is {{1}}. Valid for {{2}} minutes."
+ * Send OTP (or any system message) to a user via WhatsApp (plain text only).
+ * Does NOT require live chat to be active. Note: delivery only works within 24h of user's last message.
  */
 export async function sendOtpMessage(req, res) {
 	try {
-		const {
-			to,
-			message,
-			templateName,
-			templateBodyParams,
-			templateLanguage = "en",
-		} = req.body;
+		const { to, message } = req.body;
 
-		if (!to) {
+		if (!to || !message) {
 			return res.status(400).json({
 				success: false,
 				error: {
-					message: "Missing required field: 'to' (phone). Also provide 'message' or 'templateName' + 'templateBodyParams'.",
+					message: "Missing required fields: 'to' (phone) and 'message'",
 					code: 400,
 				},
 			});
@@ -41,38 +27,7 @@ export async function sendOtpMessage(req, res) {
 			});
 		}
 
-		let result;
-
-		if (templateName && Array.isArray(templateBodyParams)) {
-			// Template message — works outside 24-hour session window
-			const components = [
-				{
-					type: "body",
-					parameters: templateBodyParams.map((text) => ({
-						type: "text",
-						text: String(text),
-					})),
-				},
-			];
-			result = await sendTemplateMessage(
-				normalizedTo,
-				templateName,
-				templateLanguage,
-				components,
-			);
-		} else if (message) {
-			// Plain text — only delivered if user messaged in last 24h
-			result = await sendTextMessage(normalizedTo, message);
-		} else {
-			return res.status(400).json({
-				success: false,
-				error: {
-					message:
-						"Provide either 'message' (plain text) or 'templateName' and 'templateBodyParams' (template, for reliable delivery outside 24h).",
-					code: 400,
-				},
-			});
-		}
+		const result = await sendTextMessage(normalizedTo, message);
 
 		if (result.success) {
 			return res.status(200).json({
