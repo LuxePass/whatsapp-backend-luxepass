@@ -12,7 +12,7 @@ const phoneNumberSchema = z
 // Send message request schema
 export const sendMessageSchema = z.object({
 	to: phoneNumberSchema,
-	type: z.enum(["text", "image", "video", "document", "audio", "template"]),
+	type: z.enum(["text", "otp", "image", "video", "document", "audio", "template"]),
 	message: z.string().optional(),
 	mediaUrl: z.string().url().optional(),
 	caption: z.string().optional(),
@@ -22,7 +22,7 @@ export const sendMessageSchema = z.object({
 	components: z.array(z.any()).optional(),
 }).refine(
 	(data) => {
-		if (data.type === "text" && !data.message) {
+		if ((data.type === "text" || data.type === "otp") && !data.message) {
 			return false;
 		}
 		if (["image", "video", "document", "audio"].includes(data.type) && !data.mediaUrl) {

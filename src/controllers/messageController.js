@@ -42,6 +42,20 @@ export async function sendMessage(req, res) {
 
 		let result;
 
+		// Check if user has requested live support (for text and offer). Skip for "otp" (PA OTP, system).
+		const user = await User.findOne({ phoneNumber: to.replace(/\D/g, "") });
+		if (!user || !user.isLiveChatActive) {
+			if (type === "text" || type === "offer") {
+				return res.status(403).json({
+					success: false,
+					error: {
+						message: "Cannot send message. User has not requested live support.",
+						code: 403,
+					},
+				});
+			}
+		}
+
 		switch (type) {
 			case "text":
 				if (!message) {
@@ -50,21 +64,42 @@ export async function sendMessage(req, res) {
 						error: "Missing required field: 'message' for text type",
 					});
 				}
-
-				// Check if user has requested live support
-				const user = await User.findOne({ phoneNumber: to.replace(/\D/g, "") });
-				if (!user || !user.isLiveChatActive) {
-					return res.status(403).json({
-						success: false,
-						error: {
-							message: "Cannot send message. User has not requested live support.",
-							code: 403,
-						},
-					});
-				}
-
 				result = await sendTextMessage(to, message);
 				break;
+
+			case "otp":
+				if (!message) {
+					return res.status(400).json({
+						success: false,
+						error: "Missing required field: 'message' for otp type",
+					});
+				}
+				result = await sendTextMessage(to, message);
+				break;
+
+			case "offer": {
+				const { title, description, imageUrl, ctaLabel, ctaUrl } = req.body;
+				if (!title && !description) {
+					return res.status(400).json({
+						success: false,
+						error: "Offer requires at least 'title' or 'description'",
+					});
+				}
+				const offerBody = [title, description].filter(Boolean).join("\n\n");
+				const ctaPart =
+					ctaLabel && ctaUrl
+						? `\n\n${ctaLabel}: ${ctaUrl}`
+						: ctaUrl
+							? `\n\n${ctaUrl}`
+							: "";
+				const fullText = offerBody + ctaPart;
+				if (imageUrl) {
+					result = await sendMediaMessage(to, imageUrl, "image", fullText);
+				} else {
+					result = await sendTextMessage(to, fullText);
+				}
+				break;
+			}
 
 			case "image":
 			case "video":
@@ -97,7 +132,7 @@ export async function sendMessage(req, res) {
 			default:
 				return res.status(400).json({
 					success: false,
-					error: `Invalid message type: ${type}. Supported types: text, image, video, document, audio, template`,
+					error: `Invalid message type: ${type}. Supported types: text, otp, offer, image, video, document, audio, template`,
 				});
 		}
 

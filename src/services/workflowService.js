@@ -40,7 +40,7 @@ const STATES = {
 	CONCIERGE_DETAILS: "CONCIERGE_DETAILS",
 	CONCIERGE_BOOKING: "CONCIERGE_BOOKING",
 
-	// Emergency Withdrawal
+	// Emergency Transfer
 	WITHDRAWAL_AMOUNT: "WITHDRAWAL_AMOUNT",
 	WITHDRAWAL_NARRATION: "WITHDRAWAL_NARRATION",
 	WITHDRAWAL_VERIFY: "WITHDRAWAL_VERIFY",
@@ -172,8 +172,8 @@ async function sendServicesMenu(to) {
 					},
 					{
 						id: "service_withdrawal",
-						title: "💸 Withdrawal",
-						description: "Emergency fund request",
+						title: "💸 Emergency Transfer",
+						description: "Transfer to bank account",
 					},
 					{ id: "menu", title: "⬅️ Back", description: "Return to Main Menu" },
 				],
@@ -757,7 +757,7 @@ async function handleServiceMenu(user, message) {
 			await user.save();
 			await sendTextMessage(
 				user.phoneNumber,
-				"*Emergency Withdrawal Flow* 💸\n\nPlease enter the amount you'd like to withdraw from your virtual account (in NGN, e.g. 50000).",
+				"*Emergency Transfer* 💸\n\nEnter the amount to transfer (in NGN, e.g. 50000).",
 			);
 			break;
 
@@ -1627,7 +1627,7 @@ async function handleReferralWithdrawFlow(user, message) {
 	}
 }
 
-// ─── Emergency Withdrawal Flow ──────────────────────────────────────────────
+// ─── Emergency Transfer Flow ──────────────────────────────────────────────
 
 async function handleWithdrawalFlow(user, message) {
 	const choice = message.trim();
@@ -1647,7 +1647,7 @@ async function handleWithdrawalFlow(user, message) {
 		await user.save();
 		await sendTextMessage(
 			phoneNumber,
-			"Please provide a reason for this withdrawal (Narration):",
+			"Please provide a reason for this transfer (Narration):",
 		);
 		return;
 	}
@@ -1685,7 +1685,7 @@ async function handleWithdrawalFlow(user, message) {
 				phone: phoneNumber,
 				securityAnswer,
 				amount,
-				narration: `Emergency Withdrawal: ${narration}`,
+				narration: `Emergency Transfer: ${narration}`,
 			});
 
 			if (result) {
