@@ -524,14 +524,21 @@ export async function handleWorkflow(from, message, name) {
 				user.workflowState === STATES.MAIN_MENU);
 
 		if (isMenuCommand) {
-			const inLiveChat = user.isLiveChatActive;
-			// When in live chat: only show the menu; do not end the live chat or unassign PA.
-			if (!inLiveChat) {
-				user.workflowState = STATES.MAIN_MENU;
-				user.workflowData = new Map();
-				user.isLiveChatActive = false;
-				user.assignedPaId = undefined;
-				await user.save();
+			const wasLiveChat = user.isLiveChatActive;
+			user.workflowState = STATES.MAIN_MENU;
+			user.workflowData = new Map();
+			user.isLiveChatActive = false;
+			user.assignedPaId = undefined;
+			await user.save();
+			if (wasLiveChat) {
+				await Conversation.updateOne(
+					{ conversationId: phoneNumber },
+					{ $unset: { assignedPaId: "" } },
+				);
+				logger.info("User exited live chat via menu command", {
+					phoneNumber,
+					message: normalizedMsg,
+				});
 			}
 			await sendWelcomeMenu(phoneNumber, user.name);
 			return;
