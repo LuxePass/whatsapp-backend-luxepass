@@ -29,6 +29,7 @@ const STATES = {
 	// Booking
 	BOOKING_CATEGORY: "BOOKING_CATEGORY",
 	BOOKING_LISTING: "BOOKING_LISTING",
+	BOOKING_PROPERTY_CONFIRM: "BOOKING_PROPERTY_CONFIRM",
 	BOOKING_CHECKIN: "BOOKING_CHECKIN",
 	BOOKING_CHECKOUT: "BOOKING_CHECKOUT",
 	BOOKING_GUESTS: "BOOKING_GUESTS",
@@ -556,6 +557,7 @@ async function routeWorkflowState(user, message) {
 	const bookingStates = new Set([
 		STATES.BOOKING_CATEGORY,
 		STATES.BOOKING_LISTING,
+		STATES.BOOKING_PROPERTY_CONFIRM,
 		STATES.BOOKING_CHECKIN,
 		STATES.BOOKING_CHECKOUT,
 		STATES.BOOKING_GUESTS,
@@ -816,45 +818,155 @@ async function handleBookingFlow(user, message) {
 			};
 		});
 
+		// Store listing ids so we can exclude viewed ones when they ask for "another"
+		user.workflowData.set("viewedListingIds", "[]");
 		await sendListMessage(
 			phoneNumber,
-			`We found ${listings.length} ${propertyType.toLowerCase()}(s) for you.`,
+			`We found ${listings.length} ${propertyType.toLowerCase()}(s) for you. Select one to view its photos and details.`,
 			"Select Property",
 			[{ title: "Available Listings", rows: listingRows }],
 			`Available ${propertyType}s 🏨`,
 		);
-		// Include product images when available (send first image per listing)
-		for (const l of listings.slice(0, 5)) {
-			const url = l.media?.[0]?.url;
-			if (url) {
-				const symbol = l.currency === "USD" ? "$" : "₦";
-				const caption = `${l.name || "Listing"}\n${(l.description || "").substring(0, 200)}\n${symbol}${Number(l.pricePerNight || 0).toLocaleString()}/night`;
-				await sendMediaMessage(phoneNumber, url, "image", caption);
-			}
-		}
 		await sendTextMessage(
 			phoneNumber,
-			"Are you satisfied with this option or would you like to see another? Reply with a property from the list above to continue.",
+			"Reply with a property from the list above to see its photos and details. Then we'll ask if you're satisfied or want to view another.",
 		);
 		return;
 	}
 
-	// Select listing
+	// Select listing: send that property's media and ask satisfied / view another
 	if (user.workflowState === STATES.BOOKING_LISTING) {
-		user.workflowData.set("propertyId", choice);
-
 		const listing = await backendService.getListingById(choice);
-		if (listing) {
-			user.workflowData.set("propertyName", listing.name);
-			user.workflowData.set("pricePerNight", String(listing.pricePerNight));
-			user.workflowData.set("currency", listing.currency || "NGN");
+		const propertyType = user.workflowData.get("propertyType");
+		if (!listing || (propertyType && listing.propertyType !== propertyType)) {
+			await sendTextMessage(
+				phoneNumber,
+				"That property isn't in the list. Please select one from the list above.",
+			);
+			return;
 		}
 
-		user.workflowState = STATES.BOOKING_CHECKIN;
+		// Send all media for the chosen property (or first 8 to avoid flooding)
+		const mediaList = listing.media && listing.media.length ? listing.media : [];
+		const toSend = mediaList.slice(0, 8);
+		const symbol = listing.currency === "USD" ? "$" : "₦";
+		const priceStr = `${symbol}${Number(listing.pricePerNight || 0).toLocaleString()}/night`;
+		for (const m of toSend) {
+			const url = m.url;
+			if (url) {
+				const caption =
+					toSend.indexOf(m) === 0
+						? `${listing.name || "Listing"}\n${(listing.description || "").substring(0, 200)}\n${priceStr}${listing.city ? ` · ${listing.city}` : ""}`
+						: "";
+				await sendMediaMessage(phoneNumber, url, "image", caption);
+			}
+		}
+		if (toSend.length === 0) {
+			await sendTextMessage(
+				phoneNumber,
+				`*${listing.name}*\n${(listing.description || "").substring(0, 300)}\n${priceStr}`,
+			);
+		}
+
+		user.workflowData.set("propertyId", listing.id);
+		user.workflowData.set("propertyName", listing.name);
+		user.workflowData.set("pricePerNight", String(listing.pricePerNight));
+		user.workflowData.set("currency", listing.currency || "NGN");
+		const viewedRaw = user.workflowData.get("viewedListingIds") || "[]";
+		let viewedIds = [];
+		try {
+			viewedIds = JSON.parse(viewedRaw);
+		} catch (_) {}
+		if (!viewedIds.includes(listing.id)) viewedIds.push(listing.id);
+		user.workflowData.set("viewedListingIds", JSON.stringify(viewedIds));
+
+		user.workflowState = STATES.BOOKING_PROPERTY_CONFIRM;
 		await user.save();
 		await sendTextMessage(
 			phoneNumber,
-			"Great choice! Please enter your *Check-in Date* (YYYY-MM-DD):",
+			"Are you satisfied with this property, or would you like to view another? Reply *Yes* to proceed with this one, or *Another* to see more options.",
+		);
+		return;
+	}
+
+	// Satisfied or view another
+	if (user.workflowState === STATES.BOOKING_PROPERTY_CONFIRM) {
+		const normalized = choice.toLowerCase().trim();
+		const isYes =
+			normalized === "yes" ||
+			normalized === "satisfied" ||
+			normalized === "ok" ||
+			normalized === "proceed" ||
+			normalized === "1";
+		const isAnother =
+			normalized === "another" ||
+			normalized === "no" ||
+			normalized === "view another" ||
+			normalized === "more" ||
+			normalized === "2";
+
+		if (isYes) {
+			user.workflowState = STATES.BOOKING_CHECKIN;
+			await user.save();
+			await sendTextMessage(
+				phoneNumber,
+				"Great choice! Please enter your *Check-in Date* (YYYY-MM-DD):",
+			);
+			return;
+		}
+
+		if (isAnother) {
+			const propertyType = user.workflowData.get("propertyType");
+			const viewedRaw = user.workflowData.get("viewedListingIds") || "[]";
+			let viewedIds = [];
+			try {
+				viewedIds = JSON.parse(viewedRaw);
+			} catch (_) {}
+			const all = await backendService.getListings({
+				propertyType,
+				limit: 20,
+			});
+			const remaining = all.filter((l) => !viewedIds.includes(l.id));
+			if (remaining.length === 0) {
+				await sendTextMessage(
+					phoneNumber,
+					"There are no more options in this category. We'll proceed with your current choice. Please enter your *Check-in Date* (YYYY-MM-DD):",
+				);
+				user.workflowState = STATES.BOOKING_CHECKIN;
+				await user.save();
+				return;
+			}
+			const listingRows = remaining.map((l) => {
+				const sym = l.currency === "USD" ? "$" : "₦";
+				const priceStr = `${sym}${Number(l.pricePerNight || 0).toLocaleString()}/night`;
+				const desc = (l.description || "").substring(0, 50);
+				const part = l.city ? ` — ${l.city}` : "";
+				const description = desc ? `${priceStr} · ${desc}${part}`.substring(0, 72) : `${priceStr}${part}`.substring(0, 72);
+				return {
+					id: l.id,
+					title: (l.name || "Listing").substring(0, 24),
+					description,
+				};
+			});
+			await sendListMessage(
+				phoneNumber,
+				`Here are ${remaining.length} more option(s). Select one to view photos and details.`,
+				"Select Property",
+				[{ title: "More Listings", rows: listingRows }],
+				`More ${propertyType}s 🏨`,
+			);
+			await sendTextMessage(
+				phoneNumber,
+				"Reply with a property from the list to see its photos, then we'll ask again if you're satisfied or want to view another.",
+			);
+			user.workflowState = STATES.BOOKING_LISTING;
+			await user.save();
+			return;
+		}
+
+		await sendTextMessage(
+			phoneNumber,
+			"Reply *Yes* to proceed with this property, or *Another* to see more options.",
 		);
 		return;
 	}
