@@ -877,27 +877,39 @@ async function handleBookingFlow(user, message) {
 			return;
 		}
 
-		// Send all media for the chosen property (or first 8 to avoid flooding)
-		const mediaList = listing.media && listing.media.length ? listing.media : [];
-		const toSend = mediaList.slice(0, 8);
 		const symbol = listing.currency === "USD" ? "$" : "₦";
 		const priceStr = `${symbol}${Number(listing.pricePerNight || 0).toLocaleString()}/night`;
-		for (const m of toSend) {
-			const url = m.url;
+
+		// Build full details text (all fields) for a follow-up message
+		const parts = [
+			`*${listing.name || "Listing"}*`,
+			listing.description ? listing.description : "",
+			`📍 ${[listing.address, listing.city, listing.state, listing.country].filter(Boolean).join(", ") || "—"}`,
+			`🛏 ${listing.bedrooms ?? "—"} bed · 🚿 ${listing.bathrooms ?? "—"} bath · 👥 ${listing.maxGuests ?? "—"} guests`,
+			listing.amenities && listing.amenities.length ? `✨ ${listing.amenities.join(", ")}` : "",
+			`💰 ${priceStr}`,
+		];
+		const fullDetailsText = parts.filter(Boolean).join("\n\n");
+
+		// Send all media for the chosen property (first 8 to avoid flooding), with short delay between sends
+		const mediaList = listing.media && listing.media.length ? listing.media : [];
+		const toSend = mediaList.slice(0, 8);
+		const CAPTION_MAX = 1024;
+		const descSnippet = (listing.description || "").substring(0, 150);
+		const firstCaption = `${listing.name || "Listing"}\n${descSnippet}${listing.description && listing.description.length > 150 ? "…" : ""}\n${priceStr}${listing.city ? ` · ${listing.city}` : ""}`.slice(0, CAPTION_MAX);
+		for (let i = 0; i < toSend.length; i++) {
+			const m = toSend[i];
+			const url = m && (m.url || m.mediaUrl);
 			if (url) {
-				const caption =
-					toSend.indexOf(m) === 0
-						? `${listing.name || "Listing"}\n${(listing.description || "").substring(0, 200)}\n${priceStr}${listing.city ? ` · ${listing.city}` : ""}`
-						: "";
-				await sendMediaMessage(phoneNumber, url, "image", caption);
+				const caption = i === 0 ? firstCaption : "";
+				await sendMediaMessage(phoneNumber, url, (m.type && m.type.toLowerCase() === "video") ? "video" : "image", caption);
+				if (i < toSend.length - 1) {
+					await new Promise((r) => setTimeout(r, 500));
+				}
 			}
 		}
-		if (toSend.length === 0) {
-			await sendTextMessage(
-				phoneNumber,
-				`*${listing.name}*\n${(listing.description || "").substring(0, 300)}\n${priceStr}`,
-			);
-		}
+		// Always send full details as a text message so user gets everything (and gets details even if media failed)
+		await sendTextMessage(phoneNumber, fullDetailsText);
 
 		user.workflowData.set("propertyId", listing.id);
 		user.workflowData.set("propertyName", listing.name);
