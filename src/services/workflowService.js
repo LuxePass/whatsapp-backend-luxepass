@@ -497,6 +497,46 @@ export async function handleWorkflow(from, message, name) {
 			return;
 		}
 
+		// ── Global reset commands first: so "menu" / "main menu" / "start" work even when in live chat ──
+		const normalizedMsg = String(message ?? "")
+			.toLowerCase()
+			.replace(/\s+/g, " ")
+			.trim();
+		if (user.isLiveChatActive && normalizedMsg) {
+			logger.info("Message from user in live chat", {
+				phoneNumber,
+				normalizedMsg,
+				rawLength: String(message ?? "").length,
+			});
+		}
+		const isMenuCommand =
+			normalizedMsg === "menu" ||
+			normalizedMsg === "main menu" ||
+			normalizedMsg === "mainmenu" ||
+			normalizedMsg === "main" ||
+			normalizedMsg === "start" ||
+			normalizedMsg === "restart" ||
+			normalizedMsg === "back" ||
+			normalizedMsg === "go back" ||
+			normalizedMsg === "home" ||
+			normalizedMsg === "show menu" ||
+			((normalizedMsg === "hi" || normalizedMsg === "hello") &&
+				user.workflowState === STATES.MAIN_MENU);
+
+		if (isMenuCommand) {
+			const inLiveChat = user.isLiveChatActive;
+			// When in live chat: only show the menu; do not end the live chat or unassign PA.
+			if (!inLiveChat) {
+				user.workflowState = STATES.MAIN_MENU;
+				user.workflowData = new Map();
+				user.isLiveChatActive = false;
+				user.assignedPaId = undefined;
+				await user.save();
+			}
+			await sendWelcomeMenu(phoneNumber, user.name);
+			return;
+		}
+
 		// ── Existing user: live chat active — hands off to human agent ────────────
 		if (user.isLiveChatActive) return;
 
@@ -523,24 +563,6 @@ export async function handleWorkflow(from, message, name) {
 				phoneNumber: user.phoneNumber,
 				previousState,
 			});
-			return;
-		}
-
-		// ── Global reset commands: menu, main menu, start, restart (and hi/hello when already on main menu) ──
-		const lowered = message.toLowerCase().trim();
-		const isMenuCommand =
-			lowered === "menu" ||
-			lowered === "main menu" ||
-			lowered === "start" ||
-			lowered === "restart" ||
-			((lowered === "hi" || lowered === "hello") &&
-				user.workflowState === STATES.MAIN_MENU);
-
-		if (isMenuCommand) {
-			user.workflowState = STATES.MAIN_MENU;
-			user.workflowData = new Map();
-			await user.save();
-			await sendWelcomeMenu(phoneNumber, user.name);
 			return;
 		}
 
