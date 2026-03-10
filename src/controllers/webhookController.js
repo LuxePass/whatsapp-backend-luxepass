@@ -151,14 +151,16 @@ async function processMessageEvent(value) {
 			});
 
 			if (status.status === "failed") {
-				logger.warn(
-					"Message delivery FAILED (Meta could not deliver to recipient). Common causes: 1) Message sent outside 24-hour session window (use an approved template for OTP/out-of-session). 2) Recipient not on WhatsApp or number invalid. 3) Recipient blocked the business.",
-					{
-						messageId: status.id,
-						recipient: status.recipient_id,
-						errors: status.errors,
-					}
-				);
+				const detail =
+					status.errors?.[0]?.error_data?.details ||
+					status.errors?.[0]?.message ||
+					"Unknown";
+				logger.warn("Message delivery failed", {
+					messageId: status.id,
+					recipient: status.recipient_id,
+					detail,
+					errors: status.errors,
+				});
 			}
 
 			// Update message status in storage

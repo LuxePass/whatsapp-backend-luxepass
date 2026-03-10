@@ -26,6 +26,7 @@ export async function sendMessage(req, res) {
 			link,
 			listingId,
 			summary,
+			paId,
 		} = req.body;
 
 		logger.info("Send message request received", {
@@ -44,6 +45,44 @@ export async function sendMessage(req, res) {
 			});
 		}
 
+		if (!paId) {
+			return res.status(400).json({
+				success: false,
+				error: {
+					message: "Missing required field: 'paId'. Only the PA assigned to this user can send messages.",
+					code: 400,
+				},
+			});
+		}
+
+		const normalizedTo = to.replace(/\D/g, "");
+
+		// Helper: ensure user is on live chat and assigned to this PA. Returns user or null (and sends error response).
+		const ensureUserAssignedToPA = async () => {
+			const user = await User.findOne({ phoneNumber: normalizedTo });
+			if (!user || !user.isLiveChatActive) {
+				res.status(403).json({
+					success: false,
+					error: {
+						message: "Cannot send message. User has not requested live support.",
+						code: 403,
+					},
+				});
+				return null;
+			}
+			if (user.assignedPaId !== paId) {
+				res.status(403).json({
+					success: false,
+					error: {
+						message: "You can only send messages to users assigned to you.",
+						code: 403,
+					},
+				});
+				return null;
+			}
+			return user;
+		};
+
 		let result;
 
 		switch (type) {
@@ -55,18 +94,7 @@ export async function sendMessage(req, res) {
 					});
 				}
 
-				// Check if user has requested live support
-				const user = await User.findOne({ phoneNumber: to.replace(/\D/g, "") });
-				if (!user || !user.isLiveChatActive) {
-					return res.status(403).json({
-						success: false,
-						error: {
-							message: "Cannot send message. User has not requested live support.",
-							code: 403,
-						},
-					});
-				}
-
+				if (!(await ensureUserAssignedToPA())) return;
 				result = await sendTextMessage(to, message);
 				break;
 
@@ -80,6 +108,7 @@ export async function sendMessage(req, res) {
 						error: `Missing required field: 'mediaUrl' for ${type} type`,
 					});
 				}
+				if (!(await ensureUserAssignedToPA())) return;
 				result = await sendMediaMessage(to, mediaUrl, type, caption, filename);
 				break;
 
@@ -99,16 +128,7 @@ export async function sendMessage(req, res) {
 				break;
 
 			case "offer": {
-				const user = await User.findOne({ phoneNumber: to.replace(/\D/g, "") });
-				if (!user || !user.isLiveChatActive) {
-					return res.status(403).json({
-						success: false,
-						error: {
-							message: "Cannot send message. User has not requested live support.",
-							code: 403,
-						},
-					});
-				}
+				if (!(await ensureUserAssignedToPA())) return;
 				const offerText = link ? `${message}\n\n${link}` : message;
 				result = await sendTextMessage(to, offerText);
 				if (result.success && mediaUrl) {
@@ -119,16 +139,7 @@ export async function sendMessage(req, res) {
 			}
 
 			case "listing": {
-				const user = await User.findOne({ phoneNumber: to.replace(/\D/g, "") });
-				if (!user || !user.isLiveChatActive) {
-					return res.status(403).json({
-						success: false,
-						error: {
-							message: "Cannot send message. User has not requested live support.",
-							code: 403,
-						},
-					});
-				}
+				if (!(await ensureUserAssignedToPA())) return;
 				const listing = await backendService.getListingById(listingId);
 				if (!listing) {
 					return res.status(404).json({
@@ -153,16 +164,7 @@ export async function sendMessage(req, res) {
 			}
 
 			case "booking_suggestion": {
-				const user = await User.findOne({ phoneNumber: to.replace(/\D/g, "") });
-				if (!user || !user.isLiveChatActive) {
-					return res.status(403).json({
-						success: false,
-						error: {
-							message: "Cannot send message. User has not requested live support.",
-							code: 403,
-						},
-					});
-				}
+				if (!(await ensureUserAssignedToPA())) return;
 				const suggestionText = message || summary || "";
 				result = await sendTextMessage(to, suggestionText);
 				break;

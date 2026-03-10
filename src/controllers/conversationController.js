@@ -4,34 +4,28 @@ import {
 	markConversationAsRead,
 } from "../utils/messageStorage.js";
 import logger from "../config/logger.js";
-import config from "../config/env.js";
 import Conversation from "../models/Conversation.js";
 
 /**
- * Get all conversations
+ * Get all conversations for the given PA. Only returns conversations assigned to this PA.
+ * paId is required so each PA only sees their assigned users.
  */
 export async function getConversations(req, res) {
 	try {
 		const { paId } = req.query;
-		const query = {};
-		if (paId) {
-			query.assignedPaId = paId;
+
+		if (!paId) {
+			return res.status(400).json({
+				success: false,
+				error: "Missing required query parameter: paId. Only conversations assigned to this PA are returned.",
+			});
 		}
 
-		const totalCount = await Conversation.countDocuments({});
-
-		let conversations = await Conversation.find(query).sort({
+		const conversations = await Conversation.find({
+			assignedPaId: paId,
+		}).sort({
 			lastMessageTime: -1,
 		});
-
-		// If in development and no conversations found for this PA, fallback to all conversations
-		if (
-			conversations.length === 0 &&
-			config.server.nodeEnv === "development" &&
-			paId
-		) {
-			conversations = await Conversation.find({}).sort({ lastMessageTime: -1 });
-		}
 
 		// Format for frontend
 		const formatted = conversations
@@ -74,16 +68,38 @@ export async function getConversations(req, res) {
 }
 
 /**
- * Get messages for a specific conversation
+ * Get messages for a specific conversation. Only the PA assigned to this conversation can view messages.
  */
 export async function getConversationMessages(req, res) {
 	try {
 		const { conversationId } = req.params;
+		const { paId } = req.query;
 
 		if (!conversationId) {
 			return res.status(400).json({
 				success: false,
 				error: "Missing conversationId parameter",
+			});
+		}
+
+		if (!paId) {
+			return res.status(400).json({
+				success: false,
+				error: "Missing required query parameter: paId",
+			});
+		}
+
+		const conversation = await Conversation.findOne({ conversationId });
+		if (!conversation) {
+			return res.status(404).json({
+				success: false,
+				error: "Conversation not found",
+			});
+		}
+		if (conversation.assignedPaId !== paId) {
+			return res.status(403).json({
+				success: false,
+				error: "You can only view messages for conversations assigned to you.",
 			});
 		}
 
@@ -146,11 +162,12 @@ export async function getConversationMessages(req, res) {
 }
 
 /**
- * Mark conversation as read
+ * Mark conversation as read. Only the assigned PA can mark as read.
  */
-export function markAsRead(req, res) {
+export async function markAsRead(req, res) {
 	try {
 		const { conversationId } = req.params;
+		const { paId } = req.query;
 
 		if (!conversationId) {
 			return res.status(400).json({
@@ -159,7 +176,17 @@ export function markAsRead(req, res) {
 			});
 		}
 
-		markConversationAsRead(conversationId);
+		if (paId) {
+			const conversation = await Conversation.findOne({ conversationId });
+			if (conversation && conversation.assignedPaId !== paId) {
+				return res.status(403).json({
+					success: false,
+					error: "You can only mark conversations assigned to you as read.",
+				});
+			}
+		}
+
+		await markConversationAsRead(conversationId);
 
 		res.status(200).json({
 			success: true,

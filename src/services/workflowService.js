@@ -1979,14 +1979,11 @@ async function autoAssignPA(user) {
 		user.assignedPaId = chosenPA.id;
 		await user.save();
 
-		// Also update the conversation record
-		const conversation = await Conversation.findOne({
-			phoneNumber: user.phoneNumber,
-		});
-		if (conversation) {
-			conversation.assignedPaId = chosenPA.id;
-			await conversation.save();
-		}
+		// Ensure conversation exists and set assignedPaId (so this PA sees it in their list)
+		const { getOrCreateConversation } = await import("../utils/messageStorage.js");
+		const conversation = await getOrCreateConversation(user.phoneNumber, user.name);
+		conversation.assignedPaId = chosenPA.id;
+		await conversation.save();
 
 		logger.info("Auto-assigned user to PA", {
 			phoneNumber: user.phoneNumber,
