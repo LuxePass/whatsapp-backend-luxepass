@@ -526,11 +526,12 @@ export async function handleWorkflow(from, message, name) {
 			return;
 		}
 
-		// ── Global reset commands ─────────────────────────────────────────────────
+		// ── Global reset commands: menu, main menu, start, restart (and hi/hello when already on main menu) ──
 		const lowered = message.toLowerCase().trim();
 		const isMenuCommand =
 			lowered === "menu" ||
 			lowered === "main menu" ||
+			lowered === "start" ||
 			lowered === "restart" ||
 			((lowered === "hi" || lowered === "hello") &&
 				user.workflowState === STATES.MAIN_MENU);
