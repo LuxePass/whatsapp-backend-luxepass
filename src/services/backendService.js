@@ -452,7 +452,8 @@ export async function createEmergencyTransfer(data) {
 }
 
 /**
- * Retrieves all Personal Assistants from the core backend.
+ * Retrieves all Personal Assistants from the core backend (requires PA JWT).
+ * Prefer getActivePAsForAssignment() for live-chat assignment.
  *
  * @returns {Promise<Array>}
  */
@@ -464,6 +465,39 @@ export async function getAllPAs() {
 		return response.data.success ? (response.data.data.data ?? []) : [];
 	} catch (err) {
 		logger.error("[backendService] getAllPAs failed", {
+			status: err.response?.status,
+			message: err.message,
+		});
+		return [];
+	}
+}
+
+/**
+ * Retrieves active PAs for live-chat assignment. Uses internal secret so WhatsApp
+ * backend can call without PA JWT. Set WHATSAPP_BACKEND_SECRET in core backend
+ * and CORE_BACKEND_INTERNAL_SECRET in this app to the same value.
+ *
+ * @returns {Promise<Array<{ id: string, name: string }>>}
+ */
+export async function getActivePAsForAssignment() {
+	const secret = process.env.CORE_BACKEND_INTERNAL_SECRET || process.env.WHATSAPP_BACKEND_SECRET;
+	if (!secret) {
+		logger.warn("[backendService] CORE_BACKEND_INTERNAL_SECRET (or WHATSAPP_BACKEND_SECRET) not set; PA assignment may fail");
+		return [];
+	}
+	try {
+		const response = await withRetry(
+			() =>
+				apiClient.get("/pas/active-for-assignment", {
+					headers: { "x-whatsapp-backend-secret": secret },
+				}),
+			{ label: "getActivePAsForAssignment" }
+		);
+		const data = response.data?.data ?? response.data;
+		const list = Array.isArray(data) ? data : data?.data;
+		return list ?? [];
+	} catch (err) {
+		logger.error("[backendService] getActivePAsForAssignment failed", {
 			status: err.response?.status,
 			message: err.message,
 		});
@@ -510,6 +544,7 @@ export default {
 	setSecurityQuestion,
 	initiateTransfer,
 	getAllPAs,
+	getActivePAsForAssignment,
 	assignUserToPA,
 	getConciergeItems,
 	getPropertyTypes,

@@ -1964,7 +1964,7 @@ async function handleEmergencyTransferFlow(user, message) {
 
 async function autoAssignPA(user) {
 	try {
-		const pas = await backendService.getAllPAs();
+		const pas = await backendService.getActivePAsForAssignment();
 		if (!pas || pas.length === 0) {
 			logger.warn("No PAs available for assignment");
 			return null;
