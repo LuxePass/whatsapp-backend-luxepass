@@ -25,6 +25,7 @@ export async function sendMessage(req, res) {
 			components,
 			link,
 			listingId,
+			conciergeItemId,
 			summary,
 			paId,
 		} = req.body;
@@ -163,6 +164,31 @@ export async function sendMessage(req, res) {
 				break;
 			}
 
+			case "concierge": {
+				if (!(await ensureUserAssignedToPA())) return;
+				const item = await backendService.getConciergeItemById(conciergeItemId);
+				if (!item) {
+					return res.status(404).json({
+						success: false,
+						error: { message: "Concierge item not found", code: 404 },
+					});
+				}
+				const sym = item.currency === "USD" ? "$" : "₦";
+				const priceStr = `${sym}${Number(item.price || 0).toLocaleString()}`;
+				const conciergeText = `*${item.name || "Concierge"}* 🌟\n\n${item.description || ""}\n\n*Price:* ${priceStr}`;
+				if (item.mediaUrl) {
+					result = await sendMediaMessage(
+						to,
+						item.mediaUrl,
+						"image",
+						conciergeText,
+					);
+				} else {
+					result = await sendTextMessage(to, conciergeText);
+				}
+				break;
+			}
+
 			case "booking_suggestion": {
 				if (!(await ensureUserAssignedToPA())) return;
 				const suggestionText = message || summary || "";
@@ -173,7 +199,7 @@ export async function sendMessage(req, res) {
 			default:
 				return res.status(400).json({
 					success: false,
-					error: `Invalid message type: ${type}. Supported types: text, image, video, document, audio, template, offer, listing, booking_suggestion`,
+					error: `Invalid message type: ${type}. Supported types: text, image, video, document, audio, template, offer, listing, concierge, booking_suggestion`,
 				});
 		}
 

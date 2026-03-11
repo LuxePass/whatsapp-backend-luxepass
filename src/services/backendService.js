@@ -254,6 +254,29 @@ export async function getConciergeItems(params = {}) {
 }
 
 /**
+ * Fetches a single concierge item by ID from the core backend.
+ *
+ * @param {string} id
+ * @returns {Promise<Object|null>}
+ */
+export async function getConciergeItemById(id) {
+	try {
+		const response = await withRetry(
+			() => apiClient.get(`/concierge/${id}`),
+			{ label: `getConciergeItemById(${id})` },
+		);
+		return response.data?.data ?? response.data ?? null;
+	} catch (err) {
+		logger.error("[backendService] getConciergeItemById failed", {
+			id,
+			status: err.response?.status,
+			message: err.message,
+		});
+		return null;
+	}
+}
+
+/**
  * Fetches a single listing by its ID.
  *
  * @param {string} id
@@ -549,6 +572,7 @@ export default {
 	registerUser,
 	getListings,
 	getListingById,
+	getConciergeItemById,
 	createBooking,
 	verifySecurityAnswer,
 	getWallet,

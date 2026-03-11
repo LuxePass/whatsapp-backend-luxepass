@@ -21,6 +21,7 @@ export const sendMessageSchema = z.object({
 		"template",
 		"offer",
 		"listing",
+		"concierge",
 		"booking_suggestion",
 	]),
 	message: z.string().optional(),
@@ -34,6 +35,8 @@ export const sendMessageSchema = z.object({
 	link: z.string().url().optional(),
 	// listing: send listing summary with image, description, price
 	listingId: z.string().optional(),
+	// concierge: send concierge item summary with image, description, price
+	conciergeItemId: z.string().optional(),
 	// booking_suggestion: pre-filled summary text
 	summary: z.string().optional(),
 }).refine(
@@ -44,6 +47,7 @@ export const sendMessageSchema = z.object({
 		if (data.type === "template" && !data.templateName) return false;
 		if (data.type === "offer" && !data.message) return false;
 		if (data.type === "listing" && !data.listingId) return false;
+		if (data.type === "concierge" && !data.conciergeItemId) return false;
 		if (data.type === "booking_suggestion" && !data.message && !data.summary) return false;
 		return true;
 	},
