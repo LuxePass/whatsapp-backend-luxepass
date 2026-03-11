@@ -1015,12 +1015,15 @@ async function handleBookingFlow(user, message) {
 			});
 			const remaining = all.filter((l) => !viewedIds.includes(l.id));
 			if (remaining.length === 0) {
+				user.workflowState = STATES.PERSONAL_ASSISTANT;
+				user.isLiveChatActive = true;
+				user.workflowData = new Map();
+				await user.save();
+				await autoAssignPA(user);
 				await sendTextMessage(
 					phoneNumber,
-					"There are no more options in this category. We'll proceed with your current choice. Please enter your *Check-in Date* (YYYY-MM-DD):",
+					`Sorry, there are no more ${propertyType.toLowerCase()} options available right now. We're connecting you with our customer service so they can help you find something or take your request. Please wait, an agent will be with you shortly.`,
 				);
-				user.workflowState = STATES.BOOKING_CHECKIN;
-				await user.save();
 				return;
 			}
 			const listingRows = remaining.map((l) => {
