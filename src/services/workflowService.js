@@ -573,7 +573,7 @@ export async function handleWorkflow(from, message, name) {
 			return;
 		}
 
-		if (lowered === "withdraw") {
+		if (normalizedMsg === "withdraw") {
 			await handleWithdrawInitiation(user);
 			return;
 		}
