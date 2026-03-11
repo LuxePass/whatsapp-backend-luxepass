@@ -871,7 +871,10 @@ async function handleBookingFlow(user, message) {
 			const priceStr = `${symbol}${Number(l.pricePerNight || 0).toLocaleString()}/night`;
 			const desc = (l.description || "").substring(0, 50);
 			const part = l.city ? ` — ${l.city}` : "";
-			const description = desc ? `${priceStr} · ${desc}${part}`.substring(0, 72) : `${priceStr}${part}`.substring(0, 72);
+			const description =
+				desc ?
+					`${priceStr} · ${desc}${part}`.substring(0, 72)
+				:	`${priceStr}${part}`.substring(0, 72);
 			return {
 				id: l.id,
 				title: (l.name || "Listing").substring(0, 24),
@@ -916,7 +919,9 @@ async function handleBookingFlow(user, message) {
 			listing.description ? listing.description : "",
 			`📍 ${[listing.address, listing.city, listing.state, listing.country].filter(Boolean).join(", ") || "—"}`,
 			`🛏 ${listing.bedrooms ?? "—"} bed · 🚿 ${listing.bathrooms ?? "—"} bath · 👥 ${listing.maxGuests ?? "—"} guests`,
-			listing.amenities && listing.amenities.length ? `✨ ${listing.amenities.join(", ")}` : "",
+			listing.amenities && listing.amenities.length ?
+				`✨ ${listing.amenities.join(", ")}`
+			:	"",
 			`💰 ${priceStr}`,
 		];
 		const fullDetailsText = parts.filter(Boolean).join("\n\n");
@@ -926,13 +931,22 @@ async function handleBookingFlow(user, message) {
 		const toSend = mediaList.slice(0, 8);
 		const CAPTION_MAX = 1024;
 		const descSnippet = (listing.description || "").substring(0, 150);
-		const firstCaption = `${listing.name || "Listing"}\n${descSnippet}${listing.description && listing.description.length > 150 ? "…" : ""}\n${priceStr}${listing.city ? ` · ${listing.city}` : ""}`.slice(0, CAPTION_MAX);
+		const firstCaption =
+			`${listing.name || "Listing"}\n${descSnippet}${listing.description && listing.description.length > 150 ? "…" : ""}\n${priceStr}${listing.city ? ` · ${listing.city}` : ""}`.slice(
+				0,
+				CAPTION_MAX,
+			);
 		for (let i = 0; i < toSend.length; i++) {
 			const m = toSend[i];
 			const url = m && (m.url || m.mediaUrl);
 			if (url) {
 				const caption = i === 0 ? firstCaption : "";
-				await sendMediaMessage(phoneNumber, url, (m.type && m.type.toLowerCase() === "video") ? "video" : "image", caption);
+				await sendMediaMessage(
+					phoneNumber,
+					url,
+					m.type && m.type.toLowerCase() === "video" ? "video" : "image",
+					caption,
+				);
 				if (i < toSend.length - 1) {
 					await new Promise((r) => setTimeout(r, 500));
 				}
@@ -1014,7 +1028,10 @@ async function handleBookingFlow(user, message) {
 				const priceStr = `${sym}${Number(l.pricePerNight || 0).toLocaleString()}/night`;
 				const desc = (l.description || "").substring(0, 50);
 				const part = l.city ? ` — ${l.city}` : "";
-				const description = desc ? `${priceStr} · ${desc}${part}`.substring(0, 72) : `${priceStr}${part}`.substring(0, 72);
+				const description =
+					desc ?
+						`${priceStr} · ${desc}${part}`.substring(0, 72)
+					:	`${priceStr}${part}`.substring(0, 72);
 				return {
 					id: l.id,
 					title: (l.name || "Listing").substring(0, 24),
@@ -1865,8 +1882,7 @@ async function handleEmergencyTransferFlow(user, message) {
 	}
 
 	if (user.workflowState === STATES.EMERGENCY_TRANSFER_NARRATION) {
-		const narration =
-			choice.toLowerCase() === "skip" ? "" : choice;
+		const narration = choice.toLowerCase() === "skip" ? "" : choice;
 		user.workflowData.set("emergencyTransferNarration", narration);
 		user.workflowState = STATES.EMERGENCY_TRANSFER_BANK_NAME;
 		await user.save();
@@ -1916,7 +1932,10 @@ async function handleEmergencyTransferFlow(user, message) {
 		user.workflowData.set("emergencyTransferAccountNumber", acct);
 		user.workflowState = STATES.EMERGENCY_TRANSFER_ACCOUNT_NAME;
 		await user.save();
-		await sendTextMessage(phoneNumber, "Enter the *account name* (as it appears on your bank):");
+		await sendTextMessage(
+			phoneNumber,
+			"Enter the *account name* (as it appears on your bank):",
+		);
 		return;
 	}
 
@@ -1974,15 +1993,13 @@ async function handleEmergencyTransferFlow(user, message) {
 				throw new Error("Failed to create emergency transfer");
 			}
 		} catch (err) {
-			const msg =
-				err.response?.data?.error?.message || err.message || "";
-			const isInsufficient =
-				/insufficient|balance|low/i.test(msg);
+			const msg = err.response?.data?.error?.message || err.message || "";
+			const isInsufficient = /insufficient|balance|low/i.test(msg);
 			await sendTextMessage(
 				phoneNumber,
-				isInsufficient
-					? "❌ Insufficient balance for this amount. Please try a lower amount or contact your Personal Assistant for support."
-					: "❌ Authorization failed or something went wrong. Please check your details and try again.",
+				isInsufficient ?
+					"❌ Insufficient balance for this amount. Please try a lower amount or contact your Personal Assistant for support."
+				:	"❌ Authorization failed or something went wrong. Please check your details and try again.",
 			);
 		}
 
@@ -2022,8 +2039,12 @@ async function autoAssignPA(user) {
 		await user.save();
 
 		// Ensure conversation exists and set assignedPaId (so this PA sees it in their list)
-		const { getOrCreateConversation } = await import("../utils/messageStorage.js");
-		const conversation = await getOrCreateConversation(user.phoneNumber, user.name);
+		const { getOrCreateConversation } =
+			await import("../utils/messageStorage.js");
+		const conversation = await getOrCreateConversation(
+			user.phoneNumber,
+			user.name,
+		);
 		conversation.assignedPaId = chosenPA.id;
 		await conversation.save();
 
