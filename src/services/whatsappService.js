@@ -236,9 +236,31 @@ export async function sendInteractiveMessage(
 }
 
 /**
+ * Ensures mediaUrl is a valid absolute URI for WhatsApp.
+ * WhatsApp requires image/video/document/audio link to be a valid URI; relative paths are rejected.
+ */
+function toAbsoluteMediaUrl(mediaUrl) {
+	if (!mediaUrl || typeof mediaUrl !== "string") return mediaUrl;
+	const trimmed = mediaUrl.trim();
+	if (!trimmed) return trimmed;
+	if (/^https?:\/\//i.test(trimmed)) return trimmed;
+	try {
+		const base =
+			process.env.MEDIA_BASE_URL ||
+			process.env.CORE_BACKEND_URL ||
+			"https://backend-luxepass.onrender.com/api/v1";
+		const origin = new URL(base).origin;
+		if (trimmed.startsWith("//")) return "https:" + trimmed;
+		return trimmed.startsWith("/") ? origin + trimmed : origin + "/" + trimmed;
+	} catch (e) {
+		return trimmed;
+	}
+}
+
+/**
  * Send a media message (image, video, document, audio)
  * @param {string} to - Recipient phone number
- * @param {string} mediaUrl - URL of the media file
+ * @param {string} mediaUrl - URL of the media file (absolute or relative; relative is resolved against backend origin)
  * @param {string} type - Media type: 'image', 'video', 'document', 'audio'
  * @param {string} caption - Optional caption (for image/video)
  * @param {string} filename - Optional filename (for document)
@@ -253,6 +275,7 @@ export async function sendMediaMessage(
 ) {
 	try {
 		const normalizedTo = to.replace(/\D/g, "");
+		const absoluteMediaUrl = toAbsoluteMediaUrl(mediaUrl);
 
 		const payload = {
 			messaging_product: "whatsapp",
@@ -264,28 +287,32 @@ export async function sendMediaMessage(
 		// Set media-specific fields
 		if (type === "image") {
 			payload.image = {
-				link: mediaUrl,
+				link: absoluteMediaUrl,
 				...(caption && { caption }),
 			};
 		} else if (type === "video") {
 			payload.video = {
-				link: mediaUrl,
+				link: absoluteMediaUrl,
 				...(caption && { caption }),
 			};
 		} else if (type === "document") {
 			payload.document = {
-				link: mediaUrl,
+				link: absoluteMediaUrl,
 				...(filename && { filename }),
 			};
 		} else if (type === "audio") {
 			payload.audio = {
-				link: mediaUrl,
+				link: absoluteMediaUrl,
 			};
 		} else {
 			throw new Error(`Unsupported media type: ${type}`);
 		}
 
-		logger.info("Sending media message", { to: normalizedTo, type, mediaUrl });
+		logger.info("Sending media message", {
+			to: normalizedTo,
+			type,
+			mediaUrl: absoluteMediaUrl,
+		});
 
 		const response = await apiClient.post(
 			`/${config.meta.phoneNumberId}/messages`,
@@ -304,7 +331,7 @@ export async function sendMediaMessage(
 				messageId,
 				from: "sys",
 				to: normalizedTo,
-				content: caption || `[${type}] ${mediaUrl}`,
+				content: caption || `[${type}] ${absoluteMediaUrl}`,
 				type: type,
 				status: "sent",
 				timestamp: new Date(),
