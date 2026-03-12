@@ -12,6 +12,7 @@ const phoneNumberSchema = z
 // Send message request schema
 export const sendMessageSchema = z.object({
 	to: phoneNumberSchema,
+	paId: z.string().min(1, "paId is required (PA assigned to this user)"),
 	type: z.enum([
 		"text",
 		"image",
