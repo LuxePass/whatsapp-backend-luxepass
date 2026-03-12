@@ -1,9 +1,143 @@
 import User from "../models/User.js";
 import Message from "../models/Message.js";
 import { sendTextMessage } from "../services/whatsappService.js";
+import { getOrCreateConversation } from "../utils/messageStorage.js";
 import logger from "../config/logger.js";
 
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Assign a user (by phone) to a PA. Called by the dashboard after "Assign to Me" so the
+ * WhatsApp backend stays in sync with the core backend. This allows the PA to send messages.
+ */
+export async function assignToPA(req, res) {
+	try {
+		const { phone, paId } = req.body;
+
+		if (!phone || !paId) {
+			return res.status(400).json({
+				success: false,
+				error: "Missing required fields: phone and paId",
+			});
+		}
+
+		const normalizedPhone = String(phone).replace(/\D/g, "");
+		if (!normalizedPhone) {
+			return res.status(400).json({
+				success: false,
+				error: "Invalid phone number",
+			});
+		}
+
+		// Find or create user so we can set assignedPaId
+		let user = await User.findOne({ phoneNumber: normalizedPhone });
+		if (!user) {
+			user = await User.create({
+				phoneNumber: normalizedPhone,
+				name: "",
+				workflowState: "PERSONAL_ASSISTANT",
+				isLiveChatActive: true,
+				assignedPaId: paId,
+			});
+			logger.info("Created user for live chat assignment", {
+				phoneNumber: normalizedPhone,
+				paId,
+			});
+		} else {
+			user.isLiveChatActive = true;
+			user.assignedPaId = paId;
+			user.workflowState = "PERSONAL_ASSISTANT";
+			await user.save();
+		}
+
+		// Ensure conversation exists and assign to this PA
+		const conversation = await getOrCreateConversation(normalizedPhone);
+		conversation.assignedPaId = paId;
+		await conversation.save();
+
+		logger.info("User assigned to PA (dashboard sync)", {
+			phoneNumber: normalizedPhone,
+			paId,
+		});
+
+		res.status(200).json({
+			success: true,
+			message: "User assigned to PA",
+			data: {
+				phoneNumber: user.phoneNumber,
+				paId,
+			},
+		});
+	} catch (error) {
+		logger.error("Error in assignToPA", {
+			error: error.message,
+			stack: error.stack,
+		});
+		res.status(500).json({
+			success: false,
+			error: "Internal server error",
+		});
+	}
+}
+
+/**
+ * Transfer a user (by phone) to another PA. Called by the dashboard when a PA transfers the client.
+ */
+export async function transferToPA(req, res) {
+	try {
+		const { phone, toPaId } = req.body;
+
+		if (!phone || !toPaId) {
+			return res.status(400).json({
+				success: false,
+				error: "Missing required fields: phone and toPaId",
+			});
+		}
+
+		const normalizedPhone = String(phone).replace(/\D/g, "");
+		if (!normalizedPhone) {
+			return res.status(400).json({
+				success: false,
+				error: "Invalid phone number",
+			});
+		}
+
+		const user = await User.findOne({ phoneNumber: normalizedPhone });
+		if (!user) {
+			return res.status(404).json({
+				success: false,
+				error: "User not found in WhatsApp backend",
+			});
+		}
+
+		user.assignedPaId = toPaId;
+		await user.save();
+
+		const conversation = await getOrCreateConversation(normalizedPhone);
+		conversation.assignedPaId = toPaId;
+		await conversation.save();
+
+		logger.info("User transferred to PA (dashboard sync)", {
+			phoneNumber: normalizedPhone,
+			toPaId,
+		});
+
+		res.status(200).json({
+			success: true,
+			message: "User transferred to PA",
+			data: { phoneNumber: user.phoneNumber, paId: toPaId },
+		});
+	} catch (error) {
+		logger.error("Error in transferToPA", {
+			error: error.message,
+			stack: error.stack,
+		});
+		res.status(500).json({
+			success: false,
+			error: "Internal server error",
+		});
+	}
+}
 
 /**
  * End live chat session for a user.
