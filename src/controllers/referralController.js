@@ -3,10 +3,16 @@ import logger from "../config/logger.js";
 
 export const getReferralStats = async (req, res) => {
 	try {
+		const { paId, role } = req.query;
+		const isAdmin = role === "ADMIN" || role === "SUPER_ADMIN";
+		const filter = { referredBy: { $exists: true, $ne: null } };
+
+		if (!isAdmin && paId) {
+			filter.assignedPaId = paId;
+		}
+
 		// Aggregate stats
-		const totalReferrals = await User.countDocuments({
-			referredBy: { $exists: true, $ne: null },
-		});
+		const totalReferrals = await User.countDocuments(filter);
 
 		const now = new Date();
 		const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -14,12 +20,12 @@ export const getReferralStats = async (req, res) => {
 		const prevMonthEnd = new Date(currentMonthStart.getTime() - 1);
 
 		const currentMonthReferrals = await User.countDocuments({
-			referredBy: { $exists: true, $ne: null },
+			...filter,
 			createdAt: { $gte: currentMonthStart },
 		});
 
 		const prevMonthReferrals = await User.countDocuments({
-			referredBy: { $exists: true, $ne: null },
+			...filter,
 			createdAt: { $gte: prevMonthStart, $lte: prevMonthEnd },
 		});
 
@@ -38,9 +44,7 @@ export const getReferralStats = async (req, res) => {
 		// Get top referrers
 		const topReferrers = await User.aggregate([
 			{
-				$match: {
-					referredBy: { $exists: true, $ne: null },
-				},
+				$match: filter,
 			},
 			{
 				$group: {
@@ -74,9 +78,7 @@ export const getReferralStats = async (req, res) => {
 		);
 
 		// Get recent referral activities (users who were referred)
-		const recentReferralsRaw = await User.find({
-			referredBy: { $exists: true, $ne: null },
-		})
+		const recentReferralsRaw = await User.find(filter)
 			.sort({ createdAt: -1 })
 			.limit(50)
 			.select("name phoneNumber referredBy rewardsEarned createdAt workflowState");
@@ -97,6 +99,9 @@ export const getReferralStats = async (req, res) => {
 
 		// Total rewards across all users
 		const rewardStats = await User.aggregate([
+			{
+				$match: filter,
+			},
 			{
 				$group: {
 					_id: null,
