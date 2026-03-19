@@ -37,7 +37,7 @@ export async function sendTextMessage(to, message) {
 		// Validate phone number ID is set
 		if (!config.meta.phoneNumberId) {
 			throw new Error(
-				"META_PHONE_NUMBER_ID is not configured. Please set it in your environment variables."
+				"META_PHONE_NUMBER_ID is not configured. Please set it in your environment variables.",
 			);
 		}
 
@@ -47,7 +47,7 @@ export async function sendTextMessage(to, message) {
 		// Validate phone number format
 		if (!normalizedTo || normalizedTo.length < 10 || normalizedTo.length > 15) {
 			throw new Error(
-				`Invalid phone number format: ${to}. Phone number must be 10-15 digits.`
+				`Invalid phone number format: ${to}. Phone number must be 10-15 digits.`,
 			);
 		}
 
@@ -68,7 +68,7 @@ export async function sendTextMessage(to, message) {
 
 		const response = await apiClient.post(
 			`/${config.meta.phoneNumberId}/messages`,
-			payload
+			payload,
 		);
 
 		logger.info("Text message sent successfully", {
@@ -134,7 +134,7 @@ export async function sendInteractiveMessage(
 	bodyText,
 	buttons,
 	headerText = null,
-	footerText = null
+	footerText = null,
 ) {
 	try {
 		const normalizedTo = to.replace(/\D/g, "");
@@ -188,7 +188,7 @@ export async function sendInteractiveMessage(
 
 		const response = await apiClient.post(
 			`/${config.meta.phoneNumberId}/messages`,
-			payload
+			payload,
 		);
 
 		logger.info("Interactive message sent successfully", {
@@ -271,7 +271,7 @@ export async function sendMediaMessage(
 	mediaUrl,
 	type = "image",
 	caption = null,
-	filename = null
+	filename = null,
 ) {
 	try {
 		const normalizedTo = to.replace(/\D/g, "");
@@ -316,7 +316,7 @@ export async function sendMediaMessage(
 
 		const response = await apiClient.post(
 			`/${config.meta.phoneNumberId}/messages`,
-			payload
+			payload,
 		);
 
 		logger.info("Media message sent successfully", {
@@ -376,7 +376,7 @@ export async function sendTemplateMessage(
 	to,
 	templateName,
 	languageCode = "en",
-	components = []
+	components = [],
 ) {
 	try {
 		const normalizedTo = to.replace(/\D/g, "");
@@ -403,7 +403,7 @@ export async function sendTemplateMessage(
 
 		const response = await apiClient.post(
 			`/${config.meta.phoneNumberId}/messages`,
-			payload
+			payload,
 		);
 
 		logger.info("Template message sent successfully", {
@@ -452,6 +452,103 @@ export async function sendTemplateMessage(
 }
 
 /**
+ * Send a marketing template message via WhatsApp Marketing Messages API.
+ * Uses the marketing_messages endpoint (not /messages). Requires an approved marketing template.
+ * @see https://developers.facebook.com/documentation/business-messaging/whatsapp/marketing-messages/get-started
+ * @param {string} to - Recipient phone number
+ * @param {string} templateName - Approved marketing template name
+ * @param {string} languageCode - Language code (e.g. en, en_US)
+ * @param {Array<{ type: string; parameters: Array<{ type: string; text?: string }> }>} components - Template components (e.g. body with parameters)
+ * @returns {Promise<Object>} API response
+ */
+export async function sendMarketingTemplateMessage(
+	to,
+	templateName,
+	languageCode = "en",
+	components = [],
+) {
+	try {
+		if (!config.meta.phoneNumberId) {
+			throw new Error(
+				"META_PHONE_NUMBER_ID is not configured. Please set it in your environment variables.",
+			);
+		}
+
+		const normalizedTo = to.replace(/\D/g, "");
+		if (!normalizedTo || normalizedTo.length < 10 || normalizedTo.length > 15) {
+			throw new Error(
+				`Invalid phone number format: ${to}. Phone number must be 10-15 digits.`,
+			);
+		}
+
+		const payload = {
+			messaging_product: "whatsapp",
+			recipient_type: "individual",
+			to: normalizedTo,
+			type: "template",
+			template: {
+				name: templateName,
+				language: { code: languageCode },
+				components: components.length ? components : [{ type: "body", parameters: [] }],
+			},
+		};
+
+		logger.info("Sending marketing template message", {
+			to: normalizedTo,
+			templateName,
+			phoneNumberId: config.meta.phoneNumberId,
+		});
+
+		const response = await apiClient.post(
+			`/${config.meta.phoneNumberId}/marketing_messages`,
+			payload,
+		);
+
+		logger.info("Marketing message sent successfully", {
+			messageId: response.data.messages?.[0]?.id,
+			to: normalizedTo,
+		});
+
+		try {
+			const messageId = response.data.messages?.[0]?.id;
+			await addMessage({
+				messageId,
+				from: "sys",
+				to: normalizedTo,
+				content: `[Marketing template: ${templateName}]`,
+				type: "template",
+				status: "sent",
+				timestamp: new Date(),
+			});
+		} catch (dbError) {
+			logger.error("Failed to save sent marketing message to DB", {
+				error: dbError.message,
+			});
+		}
+
+		return {
+			success: true,
+			messageId: response.data.messages?.[0]?.id,
+			data: response.data,
+		};
+	} catch (error) {
+		logger.error("Error sending marketing template message", {
+			to,
+			templateName,
+			error: error.response?.data || error.message,
+		});
+
+		return {
+			success: false,
+			error: error.response?.data?.error || {
+				message: error.message,
+				code: error.response?.status,
+			},
+		};
+	}
+}
+
+/**
  * Mark a message as read
  * @param {string} messageId - WhatsApp message ID
  * @returns {Promise<Object>} API response
@@ -466,7 +563,7 @@ export async function markMessageAsRead(messageId) {
 
 		const response = await apiClient.post(
 			`/${config.meta.phoneNumberId}/messages`,
-			payload
+			payload,
 		);
 
 		return {
@@ -505,7 +602,7 @@ export async function sendListMessage(
 	buttonText,
 	sections,
 	headerText = null,
-	footerText = null
+	footerText = null,
 ) {
 	try {
 		const normalizedTo = to.replace(/\D/g, "");
@@ -541,7 +638,7 @@ export async function sendListMessage(
 
 		const response = await apiClient.post(
 			`/${config.meta.phoneNumberId}/messages`,
-			payload
+			payload,
 		);
 
 		logger.info("List message sent successfully", {

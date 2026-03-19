@@ -46,6 +46,20 @@ WEBHOOK_VERIFY_TOKEN=your_random_verify_token
 PORT=8000
 ```
 
+**Broadcast (Marketing Messages API)** uses a hardcoded default template name `marketing_update`. Create this template in [Meta Business Manager](https://business.facebook.com) → WhatsApp Manager → Message templates:
+
+- **Name:** `marketing_update` (must match exactly)
+- **Category:** Marketing
+- **Language:** English (or your locale)
+- **Body:** One variable for the message text, e.g. `Here's an update from us: {{1}}`
+
+Optional overrides:
+
+```env
+META_MARKETING_TEMPLATE_NAME=your_other_template_name
+META_MARKETING_TEMPLATE_LANGUAGE=en
+```
+
 ### 3. Get Meta Credentials
 
 1. **Access Token**: Go to Meta Business Manager → System Users → Create token with `whatsapp_business_messaging` permission

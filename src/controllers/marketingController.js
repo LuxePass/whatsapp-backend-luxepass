@@ -1,4 +1,8 @@
-import { sendTextMessage } from "../services/whatsappService.js";
+import {
+	sendTextMessage,
+	sendMarketingTemplateMessage,
+} from "../services/whatsappService.js";
+import config from "../config/env.js";
 import logger from "../config/logger.js";
 
 /**
@@ -53,32 +57,74 @@ export async function sendDirect(req, res) {
 }
 
 /**
- * Send the same message to multiple recipients (broadcast).
+ * Send the same message to multiple recipients (broadcast) via WhatsApp Marketing Messages API.
+ * Uses the marketing_messages endpoint with an approved marketing template (not per-recipient text API).
  * Called by core backend for Super Admin. No live-chat assignment check.
+ * @see https://developers.facebook.com/documentation/business-messaging/whatsapp/marketing-messages/get-started
  */
 export async function sendBroadcast(req, res) {
 	try {
-		const { recipients, message } = req.body;
+		const {
+			recipients,
+			message,
+			templateName: reqTemplateName,
+			languageCode: reqLanguageCode,
+		} = req.body;
 
-		if (!recipients || !Array.isArray(recipients) || recipients.length === 0 || !message) {
+		if (
+			!recipients ||
+			!Array.isArray(recipients) ||
+			recipients.length === 0 ||
+			!message
+		) {
 			return res.status(400).json({
 				success: false,
 				error: {
-					message: "Missing required fields: 'recipients' (array of phones) and 'message'",
+					message:
+						"Missing required fields: 'recipients' (array of phones) and 'message'",
 					code: 400,
 				},
 			});
 		}
 
+		// Default: hardcoded generic marketing template (create "marketing_update" in Meta with body {{1}})
+		const templateName =
+			reqTemplateName?.trim() ||
+			config.meta.marketingTemplateName?.trim() ||
+			"marketing_update";
+
+		const languageCode =
+			reqLanguageCode?.trim() ||
+			config.meta.marketingTemplateLanguage?.trim() ||
+			"en";
+
 		const normalized = recipients
 			.map((r) => String(r).replace(/\D/g, ""))
 			.filter((p) => p.length >= 10 && p.length <= 15);
 
+		// One body parameter: the broadcast message text (template must have {{1}} in body)
+		const components = [
+			{
+				type: "body",
+				parameters: [{ type: "text", text: String(message) }],
+			},
+		];
+
 		const results = [];
 		for (const to of normalized) {
 			try {
-				const result = await sendTextMessage(to, String(message));
-				results.push({ to, success: result.success, messageId: result.messageId, error: result.error });
+				const result = await sendMarketingTemplateMessage(
+					to,
+					templateName,
+					languageCode,
+					components,
+				);
+				results.push({
+					to,
+					success: result.success,
+					messageId: result.messageId,
+					error: result.error,
+				});
 			} catch (err) {
 				results.push({ to, success: false, error: { message: err.message } });
 			}

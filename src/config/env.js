@@ -6,6 +6,17 @@ export const config = {
 	meta: {
 		token: process.env.META_TOKEN || "",
 		phoneNumberId: process.env.META_PHONE_NUMBER_ID || "",
+		/**
+		 * Approved marketing template name for broadcast (Marketing Messages API).
+		 * Default: "marketing_update" — create this template in Meta Business Manager
+		 * (WhatsApp Manager → Message templates), category Marketing, body with one variable: {{1}}
+		 * Example body: "Here's an update from us: {{1}}"
+		 */
+		marketingTemplateName:
+			process.env.META_MARKETING_TEMPLATE_NAME || "marketing_update",
+		/** Language code for marketing template (e.g. en_US, en) */
+		marketingTemplateLanguage:
+			process.env.META_MARKETING_TEMPLATE_LANGUAGE || "en",
 		appId: process.env.META_APP_ID || "855384630353011",
 		appSecret: process.env.META_APP_SECRET || "4b72cc476bc3a8dfd4b4d6194352437c",
 		graphApiVersion: process.env.META_GRAPH_API_VERSION || "v22.0",
