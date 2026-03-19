@@ -489,7 +489,8 @@ export async function sendMarketingTemplateMessage(
 			template: {
 				name: templateName,
 				language: { code: languageCode },
-				components: components.length ? components : [{ type: "body", parameters: [] }],
+				components:
+					components.length ? components : [{ type: "body", parameters: [] }],
 			},
 		};
 
