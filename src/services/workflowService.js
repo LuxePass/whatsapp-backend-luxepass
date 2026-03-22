@@ -1996,6 +1996,7 @@ async function handleEmergencyTransferFlow(user, message) {
 				throw new Error("Failed to create emergency transfer");
 			}
 		} catch (err) {
+			console.error(err);
 			const msg = err.response?.data?.error?.message || err.message || "";
 			const isInsufficient = /insufficient|balance|low/i.test(msg);
 			await sendTextMessage(
