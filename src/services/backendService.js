@@ -581,6 +581,7 @@ export default {
 	getAllPAs,
 	getActivePAsForAssignment,
 	assignUserToPA,
+	createEmergencyTransfer,
 	getConciergeItems,
 	getPropertyTypes,
 	getConciergeCategories,
