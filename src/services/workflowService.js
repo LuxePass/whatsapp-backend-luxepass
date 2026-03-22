@@ -1898,12 +1898,9 @@ async function handleEmergencyTransferFlow(user, message) {
 
 	if (user.workflowState === STATES.EMERGENCY_TRANSFER_BANK_NAME) {
 		user.workflowData.set("emergencyTransferBankName", choice);
-		user.workflowState = STATES.EMERGENCY_TRANSFER_BANK_CODE;
+		user.workflowState = STATES.EMERGENCY_TRANSFER_ACCOUNT_NUMBER;
 		await user.save();
-		await sendTextMessage(
-			phoneNumber,
-			"Enter your *bank code* (e.g. 058 for GTBank, 011 for First Bank):",
-		);
+		await sendTextMessage(phoneNumber, "Enter your *account number*:");
 		return;
 	}
 
