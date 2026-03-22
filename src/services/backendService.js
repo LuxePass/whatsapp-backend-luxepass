@@ -365,8 +365,8 @@ export async function getWallet(
 	headers["X-Unique-Id"] = identifier;
 	if (token) headers["X-Security-Verification-Token"] = token;
 	if (token) headers["X-Verification-Token"] = token;
-
-	if (securityAnswer) headers["X-Verification-Token"] = securityAnswer;
+	// DO NOT pass plain text securityAnswer as a token header
+	// if (securityAnswer) headers["X-Verification-Token"] = securityAnswer;
 
 	try {
 		const response = await withRetry(
