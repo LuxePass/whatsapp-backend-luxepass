@@ -110,25 +110,26 @@ export async function sendBroadcast(req, res) {
 			},
 		];
 
-		const results = [];
-		for (const to of normalized) {
-			try {
-				const result = await sendMarketingTemplateMessage(
-					to,
-					templateName,
-					languageCode,
-					components,
-				);
-				results.push({
-					to,
-					success: result.success,
-					messageId: result.messageId,
-					error: result.error,
-				});
-			} catch (err) {
-				results.push({ to, success: false, error: { message: err.message } });
-			}
-		}
+		const results = await Promise.all(
+			normalized.map(async (to) => {
+				try {
+					const result = await sendMarketingTemplateMessage(
+						to,
+						templateName,
+						languageCode,
+						components,
+					);
+					return {
+						to,
+						success: result.success,
+						messageId: result.messageId,
+						error: result.error,
+					};
+				} catch (err) {
+					return { to, success: false, error: { message: err.message } };
+				}
+			})
+		);
 
 		const successCount = results.filter((r) => r.success).length;
 		return res.status(200).json({
