@@ -5,6 +5,9 @@ import {
 	markAsRead,
 } from "../controllers/conversationController.js";
 import { validateParams, conversationIdSchema } from "../utils/validation.js";
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
 
 const router = express.Router();
 

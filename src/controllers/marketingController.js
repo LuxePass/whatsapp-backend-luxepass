@@ -87,37 +87,16 @@ export async function sendBroadcast(req, res) {
 			});
 		}
 
-		// Default: hardcoded generic marketing template (create "marketing_update" in Meta with body {{1}})
-		const templateName =
-			reqTemplateName?.trim() ||
-			config.meta.marketingTemplateName?.trim() ||
-			"marketing_update";
-
-		const languageCode =
-			reqLanguageCode?.trim() ||
-			config.meta.marketingTemplateLanguage?.trim() ||
-			"en";
-
 		const normalized = recipients
 			.map((r) => String(r).replace(/\D/g, ""))
 			.filter((p) => p.length >= 10 && p.length <= 15);
 
-		// One body parameter: the broadcast message text (template must have {{1}} in body)
-		const components = [
-			{
-				type: "body",
-				parameters: [{ type: "text", text: String(message) }],
-			},
-		];
-
 		const results = await Promise.all(
 			normalized.map(async (to) => {
 				try {
-					const result = await sendMarketingTemplateMessage(
+					const result = await sendTextMessage(
 						to,
-						templateName,
-						languageCode,
-						components,
+						String(message)
 					);
 					return {
 						to,

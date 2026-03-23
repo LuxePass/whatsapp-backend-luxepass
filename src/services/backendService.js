@@ -475,6 +475,61 @@ export async function createEmergencyTransfer(data) {
 }
 
 /**
+ * Resolves a bank account number to a name via the core backend.
+ *
+ * @param {string} accountNumber
+ * @param {string} bankCode
+ * @param {string} securityAnswer
+ * @param {string} uniqueId
+ * @returns {Promise<Object|null>}
+ */
+export async function resolveAccount(
+	accountNumber,
+	bankCode,
+	securityAnswer,
+	uniqueId,
+) {
+	try {
+		const response = await withRetry(
+			() =>
+				apiClient.get("/transfers/resolve-account", {
+					params: { accountNumber, bankCode, securityAnswer, uniqueId },
+				}),
+			{ retries: 2, label: "resolveAccount" },
+		);
+		return response.data.success ? response.data.data : response.data;
+	} catch (err) {
+		logger.error("[backendService] resolveAccount failed", {
+			status: err.response?.status,
+			message: err.response?.data?.error?.message ?? err.message,
+		});
+		return null;
+	}
+}
+
+/**
+ * Creates bulk pending emergency transfers.
+ *
+ * @param {Object} data - { recipients: Array, securityAnswer: string, uniqueId: string, assignedPaId?: string, immediate?: boolean }
+ * @returns {Promise<Array|null>}
+ */
+export async function createBulkEmergencyTransfer(data) {
+	try {
+		const response = await withRetry(
+			() => apiClient.post("/transfers/bulk-emergency", data),
+			{ retries: 2, label: "createBulkEmergencyTransfer" },
+		);
+		return response.data.success ? response.data.data : null;
+	} catch (err) {
+		logger.error("[backendService] createBulkEmergencyTransfer failed", {
+			status: err.response?.status,
+			message: err.response?.data?.error?.message ?? err.message,
+		});
+		return null;
+	}
+}
+
+/**
  * Retrieves all Personal Assistants from the core backend (requires PA JWT).
  * Prefer getActivePAsForAssignment() for live-chat assignment.
  *
@@ -585,4 +640,6 @@ export default {
 	getConciergeItems,
 	getPropertyTypes,
 	getConciergeCategories,
+	resolveAccount,
+	createBulkEmergencyTransfer,
 };

@@ -43,12 +43,17 @@ const STATES = {
 	CONCIERGE_BOOKING: "CONCIERGE_BOOKING",
 
 	// Emergency Transfer (to external bank; PA executes)
+	EMERGENCY_TRANSFER_CHOOSE_MODE: "EMERGENCY_TRANSFER_CHOOSE_MODE", // Single vs Bulk
+	EMERGENCY_TRANSFER_CHOOSE_EXECUTION: "EMERGENCY_TRANSFER_CHOOSE_EXECUTION", // Immediate vs Timed
+	EMERGENCY_TRANSFER_DURATION: "EMERGENCY_TRANSFER_DURATION",
 	EMERGENCY_TRANSFER_AMOUNT: "EMERGENCY_TRANSFER_AMOUNT",
 	EMERGENCY_TRANSFER_NARRATION: "EMERGENCY_TRANSFER_NARRATION",
 	EMERGENCY_TRANSFER_BANK_NAME: "EMERGENCY_TRANSFER_BANK_NAME",
 	EMERGENCY_TRANSFER_BANK_CODE: "EMERGENCY_TRANSFER_BANK_CODE",
 	EMERGENCY_TRANSFER_ACCOUNT_NUMBER: "EMERGENCY_TRANSFER_ACCOUNT_NUMBER",
 	EMERGENCY_TRANSFER_ACCOUNT_NAME: "EMERGENCY_TRANSFER_ACCOUNT_NAME",
+	EMERGENCY_TRANSFER_CONFIRM_RECIPIENT: "EMERGENCY_TRANSFER_CONFIRM_RECIPIENT",
+	EMERGENCY_TRANSFER_BULK_MORE: "EMERGENCY_TRANSFER_BULK_MORE",
 	EMERGENCY_TRANSFER_VERIFY: "EMERGENCY_TRANSFER_VERIFY",
 
 	// Other
@@ -179,7 +184,7 @@ async function sendServicesMenu(to) {
 					{
 						id: "service_emergency_transfer",
 						title: "💸 Emergency Transfer",
-						description: "Transfer to your bank (PA will process)",
+						description: "Immediate or timed transfer to your bank",
 					},
 					{ id: "menu", title: "⬅️ Back", description: "Return to Main Menu" },
 				],
@@ -628,12 +633,17 @@ async function routeWorkflowState(user, message) {
 	]);
 
 	const emergencyTransferStates = new Set([
+		STATES.EMERGENCY_TRANSFER_CHOOSE_MODE,
+		STATES.EMERGENCY_TRANSFER_CHOOSE_EXECUTION,
+		STATES.EMERGENCY_TRANSFER_DURATION,
 		STATES.EMERGENCY_TRANSFER_AMOUNT,
 		STATES.EMERGENCY_TRANSFER_NARRATION,
 		STATES.EMERGENCY_TRANSFER_BANK_NAME,
 		STATES.EMERGENCY_TRANSFER_BANK_CODE,
 		STATES.EMERGENCY_TRANSFER_ACCOUNT_NUMBER,
 		STATES.EMERGENCY_TRANSFER_ACCOUNT_NAME,
+		STATES.EMERGENCY_TRANSFER_CONFIRM_RECIPIENT,
+		STATES.EMERGENCY_TRANSFER_BULK_MORE,
 		STATES.EMERGENCY_TRANSFER_VERIFY,
 	]);
 
@@ -821,11 +831,17 @@ async function handleServiceMenu(user, message) {
 			break;
 
 		case "service_emergency_transfer":
-			user.workflowState = STATES.EMERGENCY_TRANSFER_AMOUNT;
+			user.workflowData = new Map();
+			user.workflowState = STATES.EMERGENCY_TRANSFER_CHOOSE_MODE;
 			await user.save();
-			await sendTextMessage(
+			await sendInteractiveMessage(
 				user.phoneNumber,
-				"*Emergency Transfer* 💸\n\nEnter the amount you'd like to transfer to your bank (in NGN, e.g. 50000).",
+				"*Emergency Transfer* 💸\n\nWould you like to perform a single transfer or transfers to multiple accounts?",
+				[
+					{ id: "single", title: "Single Transfer" },
+					{ id: "bulk", title: "Multiple Accounts" },
+				],
+				"Select Option",
 			);
 			break;
 
@@ -1864,150 +1880,284 @@ async function handleReferralWithdrawFlow(user, message) {
 async function handleEmergencyTransferFlow(user, message) {
 	const choice = message.trim();
 	const { phoneNumber } = user;
+	const normalizedChoice = choice.toLowerCase();
 
+	// ── Step 0a: ChooseMode (Single vs Bulk) ──────────────────────────────────
+	if (user.workflowState === STATES.EMERGENCY_TRANSFER_CHOOSE_MODE) {
+		const isBulk = normalizedChoice === "bulk";
+		user.workflowData.set("isBulk", isBulk);
+		user.workflowState = STATES.EMERGENCY_TRANSFER_CHOOSE_EXECUTION;
+		await user.save();
+
+		await sendInteractiveMessage(
+			phoneNumber,
+			"How would you like this transfer to be processed?",
+			[
+				{ id: "immediate", title: "Immediate (Now)" },
+				{ id: "timed", title: "Timed (Delayed)" },
+			],
+			"Select Option",
+		);
+		return;
+	}
+
+	// ── Step 0b: ChooseExecution (Immediate vs Timed) ───────────────────────
+	if (user.workflowState === STATES.EMERGENCY_TRANSFER_CHOOSE_EXECUTION) {
+		const isImmediate = normalizedChoice === "immediate";
+		user.workflowData.set("isImmediate", isImmediate);
+
+		if (isImmediate) {
+			user.workflowState = STATES.EMERGENCY_TRANSFER_AMOUNT;
+			await user.save();
+			await sendTextMessage(
+				phoneNumber,
+				"Great! Enter the amount for this transfer (e.g. 20000):",
+			);
+		} else {
+			user.workflowState = STATES.EMERGENCY_TRANSFER_DURATION;
+			await user.save();
+			await sendTextMessage(
+				phoneNumber,
+				"How long should the Personal Assistant have to approve this transfer? (Enter minutes, e.g. 5, 30, or 1440 for 1 day):",
+			);
+		}
+		return;
+	}
+
+	// ── Step 0c: Duration (if Timed) ──────────────────────────────────────────
+	if (user.workflowState === STATES.EMERGENCY_TRANSFER_DURATION) {
+		const minutes = parseInt(choice.replace(/\D/g, ""), 10);
+		if (isNaN(minutes) || minutes <= 0) {
+			await sendTextMessage(phoneNumber, "Please enter a valid number of minutes.");
+			return;
+		}
+		user.workflowData.set("expiryMinutes", String(minutes));
+		user.workflowState = STATES.EMERGENCY_TRANSFER_AMOUNT;
+		await user.save();
+		await sendTextMessage(phoneNumber, "Enter the amount for this transfer (e.g. 50000):");
+		return;
+	}
+
+	// ── Step 1: Amount ────────────────────────────────────────────────────────
 	if (user.workflowState === STATES.EMERGENCY_TRANSFER_AMOUNT) {
 		const amount = parseFloat(choice.replace(/[^0-9.]/g, ""));
 		if (isNaN(amount) || amount <= 0) {
-			await sendTextMessage(
-				phoneNumber,
-				"Please enter a valid amount (e.g. 50000).",
-			);
+			await sendTextMessage(phoneNumber, "Please enter a valid amount (e.g. 10000).");
 			return;
 		}
-		user.workflowData.set("emergencyTransferAmount", String(amount));
+		user.workflowData.set("temp_amount", String(amount));
 		user.workflowState = STATES.EMERGENCY_TRANSFER_NARRATION;
 		await user.save();
-		await sendTextMessage(
-			phoneNumber,
-			"Optional: provide a reason/narration for this transfer (or reply *Skip* to continue):",
-		);
+		await sendTextMessage(phoneNumber, "Provide a narration/reason (or reply *Skip*):");
 		return;
 	}
 
+	// ── Step 2: Narration ─────────────────────────────────────────────────────
 	if (user.workflowState === STATES.EMERGENCY_TRANSFER_NARRATION) {
-		const narration = choice.toLowerCase() === "skip" ? "" : choice;
-		user.workflowData.set("emergencyTransferNarration", narration);
+		const narration = normalizedChoice === "skip" ? "" : choice;
+		user.workflowData.set("temp_narration", narration);
 		user.workflowState = STATES.EMERGENCY_TRANSFER_BANK_NAME;
 		await user.save();
-		await sendTextMessage(
-			phoneNumber,
-			"Enter your *bank name* (e.g. GTBank, First Bank):",
-		);
+		await sendTextMessage(phoneNumber, "Enter the *Bank Name* (e.g. GTBank, Zenith):");
 		return;
 	}
 
+	// ── Step 3: Bank Name / Code ──────────────────────────────────────────────
 	if (user.workflowState === STATES.EMERGENCY_TRANSFER_BANK_NAME) {
-		user.workflowData.set("emergencyTransferBankName", choice);
+		user.workflowData.set("temp_bankName", choice);
 		user.workflowState = STATES.EMERGENCY_TRANSFER_ACCOUNT_NUMBER;
 		await user.save();
-		await sendTextMessage(phoneNumber, "Enter your *account number*:");
+		await sendTextMessage(phoneNumber, "Enter the *Account Number*:");
 		return;
 	}
 
-	if (user.workflowState === STATES.EMERGENCY_TRANSFER_BANK_CODE) {
-		const code = choice.replace(/\D/g, "");
-		if (!code) {
-			await sendTextMessage(
-				phoneNumber,
-				"Please enter a valid 3-digit bank code (e.g. 058).",
-			);
-			return;
-		}
-		user.workflowData.set("emergencyTransferBankCode", code);
-		user.workflowState = STATES.EMERGENCY_TRANSFER_ACCOUNT_NUMBER;
-		await user.save();
-		await sendTextMessage(phoneNumber, "Enter your *account number*:");
-		return;
-	}
-
+	// ── Step 4: Account Number & Resolution ──────────────────────────────────
 	if (user.workflowState === STATES.EMERGENCY_TRANSFER_ACCOUNT_NUMBER) {
 		const acct = choice.replace(/\D/g, "");
 		if (acct.length < 10) {
-			await sendTextMessage(
-				phoneNumber,
-				"Please enter a valid 10-digit account number.",
-			);
+			await sendTextMessage(phoneNumber, "Please enter a valid 10-digit account number.");
 			return;
 		}
-		user.workflowData.set("emergencyTransferAccountNumber", acct);
-		user.workflowState = STATES.EMERGENCY_TRANSFER_ACCOUNT_NAME;
-		await user.save();
-		await sendTextMessage(
-			phoneNumber,
-			"Enter the *account name* (as it appears on your bank):",
-		);
-		return;
-	}
-
-	if (user.workflowState === STATES.EMERGENCY_TRANSFER_ACCOUNT_NAME) {
-		user.workflowData.set("emergencyTransferAccountName", choice);
-		user.workflowState = STATES.EMERGENCY_TRANSFER_VERIFY;
-		await user.save();
-
-		let prompt =
-			"🔒 *Security Authorization*\n\nEnter the answer to your security question to authorize this transfer:";
-		try {
-			const securityInfo = await backendService.checkUserExists(phoneNumber);
-			if (securityInfo?.securityQuestion) {
-				prompt += `\n\n*"${securityInfo.securityQuestion}"*`;
-			}
-		} catch (err) {}
-		await sendTextMessage(phoneNumber, prompt);
-		return;
-	}
-
-	if (user.workflowState === STATES.EMERGENCY_TRANSFER_VERIFY) {
-		const securityAnswer = choice;
-		const amount = Number(user.workflowData.get("emergencyTransferAmount"));
-		const narration = user.workflowData.get("emergencyTransferNarration") || "";
-		const bankName = user.workflowData.get("emergencyTransferBankName");
-		const bankCode = user.workflowData.get("emergencyTransferBankCode");
-		const accountNumber = user.workflowData.get("emergencyTransferAccountNumber");
-		const accountName = user.workflowData.get("emergencyTransferAccountName");
-
-		await sendTextMessage(
-			phoneNumber,
-			"Verifying and submitting your request... ⏳",
-		);
+		user.workflowData.set("temp_accountNumber", acct);
+		
+		await sendTextMessage(phoneNumber, "Verifying account details... 🔍");
 
 		try {
-			const result = await backendService.createEmergencyTransfer({
-				phone: phoneNumber,
-				securityAnswer,
-				amount,
-				narration: narration ? `Emergency Transfer: ${narration}` : undefined,
-				destinationAccount: {
-					bankName,
-					bankCode,
-					accountNumber,
-					accountName,
-				},
-			});
+			// Resolve account via backend (Scenario A/C requirement: confirm credentials)
+			const bankName = user.workflowData.get("temp_bankName");
+			const resolution = await backendService.resolveAccount(acct, bankName, "MOCK_SECURITY", user.coreUserId || user.phoneNumber);
+			
+			if (resolution && resolution.account_name) {
+				user.workflowData.set("temp_accountName", resolution.account_name);
+				user.workflowData.set("temp_bankCode", resolution.bank_code || "");
+				user.workflowState = STATES.EMERGENCY_TRANSFER_CONFIRM_RECIPIENT;
+				await user.save();
 
-			if (result) {
-				await sendTextMessage(
+				await sendInteractiveMessage(
 					phoneNumber,
-					`✅ *Request submitted successfully!*\n\nAmount: ₦${amount.toLocaleString()}\nReference: ${result.reference || "N/A"}\n\nYour Personal Assistant will process this transfer within 1 hour. You will be notified once completed. 🥂`,
+					`Account Verified: *${resolution.account_name}*\nBank: *${bankName}*\n\nIs this correct?`,
+					[
+						{ id: "yes", title: "Yes, correct" },
+						{ id: "no", title: "No, change" },
+					],
+					"Confirm",
 				);
 			} else {
-				throw new Error("Failed to create emergency transfer");
+				throw new Error("Could not resolve account");
 			}
 		} catch (err) {
-			console.error(err);
-			const msg = err.response?.data?.error?.message || err.message || "";
-			const isInsufficient = /insufficient|balance|low/i.test(msg);
-			await sendTextMessage(
-				phoneNumber,
-				isInsufficient ?
-					"❌ Insufficient balance for this amount. Please try a lower amount or contact your Personal Assistant for support."
-				:	"❌ Authorization failed or something went wrong. Please check your details and try again.",
-			);
+			logger.warn("Account resolution failed", { err: err.message });
+			// Fallback: ask for manual name
+			user.workflowState = STATES.EMERGENCY_TRANSFER_ACCOUNT_NAME;
+			await user.save();
+			await sendTextMessage(phoneNumber, "We couldn't verify the account automatically. Please enter the *Account Name* manually:");
+		}
+		return;
+	}
+
+	// ── Step 5: Account Name (Manual fallback) ─────────────────────────────────
+	if (user.workflowState === STATES.EMERGENCY_TRANSFER_ACCOUNT_NAME) {
+		user.workflowData.set("temp_accountName", choice);
+		await finishRecipientStep(user);
+		return;
+	}
+
+	// ── Step 6: Confirm Recipient ──────────────────────────────────────────────
+	if (user.workflowState === STATES.EMERGENCY_TRANSFER_CONFIRM_RECIPIENT) {
+		if (normalizedChoice === "yes") {
+			await finishRecipientStep(user);
+		} else {
+			user.workflowState = STATES.EMERGENCY_TRANSFER_BANK_NAME;
+			await user.save();
+			await sendTextMessage(phoneNumber, "Let's try again. Please enter the *Bank Name*:");
+		}
+		return;
+	}
+
+	// ── Step 7: Bulk More? ────────────────────────────────────────────────────
+	if (user.workflowState === STATES.EMERGENCY_TRANSFER_BULK_MORE) {
+		if (normalizedChoice === "add") {
+			user.workflowState = STATES.EMERGENCY_TRANSFER_AMOUNT;
+			await user.save();
+			await sendTextMessage(phoneNumber, "Enter the amount for the next recipient:");
+		} else {
+			user.workflowState = STATES.EMERGENCY_TRANSFER_VERIFY;
+			await user.save();
+			await askSecurity(user);
+		}
+		return;
+	}
+
+	// ── Step 8: Final Verify & Submit ─────────────────────────────────────────
+	if (user.workflowState === STATES.EMERGENCY_TRANSFER_VERIFY) {
+		const securityAnswer = choice;
+		const isBulk = user.workflowData.get("isBulk") === "true" || user.workflowData.get("isBulk") === true;
+		const isImmediate = user.workflowData.get("isImmediate") === "true" || user.workflowData.get("isImmediate") === true;
+		const expiryMinutes = user.workflowData.get("expiryMinutes");
+
+		await sendTextMessage(phoneNumber, "Submitting your request... ⏳");
+
+		try {
+			let result;
+			if (isBulk) {
+				const recipients = JSON.parse(user.workflowData.get("recipients") || "[]");
+				result = await backendService.createBulkEmergencyTransfer({
+					recipients,
+					securityAnswer,
+					uniqueId: user.coreUserId || user.phoneNumber,
+					immediate: isImmediate,
+					expiryMinutes: expiryMinutes ? Number(expiryMinutes) : undefined,
+				});
+			} else {
+				result = await backendService.createEmergencyTransfer({
+					securityAnswer,
+					amount: Number(user.workflowData.get("temp_amount")),
+					narration: user.workflowData.get("temp_narration"),
+					uniqueId: user.coreUserId || user.phoneNumber,
+					immediate: isImmediate,
+					expiryMinutes: expiryMinutes ? Number(expiryMinutes) : undefined,
+					destinationAccount: {
+						bankName: user.workflowData.get("temp_bankName"),
+						bankCode: user.workflowData.get("temp_bankCode"),
+						accountNumber: user.workflowData.get("temp_accountNumber"),
+						accountName: user.workflowData.get("temp_accountName"),
+					},
+				});
+			}
+
+			if (result) {
+				const msg = isImmediate ? "✅ *Transfer(s) executed successfully!*" : "✅ *Request submitted successfully!*";
+				const subMsg = isImmediate ? "Your funds are on the way." : `PA will process this within ${expiryMinutes || 60} minutes.`;
+				await sendTextMessage(phoneNumber, `${msg}\n\n${subMsg}\n\nThank you for choosing LuxePass. 🥂`);
+			} else {
+				throw new Error("Failed to process transfer");
+			}
+		} catch (err) {
+			const errorMsg = err.response?.data?.error?.message || err.message;
+			await sendTextMessage(phoneNumber, `❌ Transfer failed: ${errorMsg}\n\nPlease check your security answer or balance and try again.`);
 		}
 
 		user.workflowState = STATES.MAIN_MENU;
+		user.workflowData = new Map();
 		await user.save();
 		await sendWelcomeMenu(phoneNumber, user.name);
 	}
+}
+
+/**
+ * Helper to finish a recipient entry and decide next step.
+ */
+async function finishRecipientStep(user) {
+	const amount = Number(user.workflowData.get("temp_amount"));
+	const narration = user.workflowData.get("temp_narration");
+	const bankName = user.workflowData.get("temp_bankName");
+	const bankCode = user.workflowData.get("temp_bankCode");
+	const accountNumber = user.workflowData.get("temp_accountNumber");
+	const accountName = user.workflowData.get("temp_accountName");
+
+	const isBulk = user.workflowData.get("isBulk") === "true" || user.workflowData.get("isBulk") === true;
+
+	const recipient = {
+		amount,
+		narration,
+		destinationAccount: { bankName, bankCode, accountNumber, accountName },
+	};
+
+	if (isBulk) {
+		const recipients = JSON.parse(user.workflowData.get("recipients") || "[]");
+		recipients.push(recipient);
+		user.workflowData.set("recipients", JSON.stringify(recipients));
+		user.workflowState = STATES.EMERGENCY_TRANSFER_BULK_MORE;
+		await user.save();
+
+		await sendInteractiveMessage(
+			user.phoneNumber,
+			`Recipient added: *${accountName}* (₦${amount.toLocaleString()})\n\nWould you like to add another account or proceed to authorize?`,
+			[
+				{ id: "add", title: "Add Another" },
+				{ id: "finish", title: "Proceed" },
+			],
+			"Select Option",
+		);
+	} else {
+		user.workflowState = STATES.EMERGENCY_TRANSFER_VERIFY;
+		await user.save();
+		await askSecurity(user);
+	}
+}
+
+/**
+ * Helper to ask for security answer.
+ */
+async function askSecurity(user) {
+	let prompt = "🔒 *Security Authorization*\n\nEnter your security answer to authorize this transfer:";
+	try {
+		const securityInfo = await backendService.checkUserExists(user.phoneNumber);
+		if (securityInfo?.securityQuestion) {
+			prompt += `\n\n*"${securityInfo.securityQuestion}"*`;
+		}
+	} catch (err) {}
+	await sendTextMessage(user.phoneNumber, prompt);
 }
 
 async function autoAssignPA(user) {
