@@ -83,6 +83,7 @@ const SECURITY_QUESTIONS = [
 ];
 
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+const EMERGENCY_TRANSFER_LOCK_MINUTES = 15;
 
 // ─── Reusable UI Helpers ──────────────────────────────────────────────────────
 
@@ -527,6 +528,27 @@ export async function handleWorkflow(from, message, name) {
 			normalizedMsg === "show menu" ||
 			((normalizedMsg === "hi" || normalizedMsg === "hello") &&
 				user.workflowState === STATES.MAIN_MENU);
+
+		const hasActiveEmergencyLock =
+			user.emergencyTransferLockUntil &&
+			new Date(user.emergencyTransferLockUntil) > new Date();
+
+		if (hasActiveEmergencyLock && !isMenuCommand) {
+			const lockUntil = new Date(user.emergencyTransferLockUntil).toLocaleTimeString();
+			await sendTextMessage(
+				phoneNumber,
+				`🔒 Emergency mode is locked for your protection. New transactions are blocked until ${lockUntil}.\n\nType *Menu* for non-transaction support.`,
+			);
+			return;
+		}
+
+		if (
+			user.emergencyTransferLockUntil &&
+			new Date(user.emergencyTransferLockUntil) <= new Date()
+		) {
+			user.emergencyTransferLockUntil = undefined;
+			await user.save();
+		}
 
 		if (isMenuCommand) {
 			const wasLiveChat = user.isLiveChatActive;
@@ -2065,6 +2087,7 @@ async function handleEmergencyTransferFlow(user, message) {
 					recipients,
 					securityAnswer,
 					uniqueId: user.coreUserId || user.phoneNumber,
+					assignedPaId: user.assignedPaId,
 					immediate: isImmediate,
 					expiryMinutes: expiryMinutes ? Number(expiryMinutes) : undefined,
 				});
@@ -2074,6 +2097,7 @@ async function handleEmergencyTransferFlow(user, message) {
 					amount: Number(user.workflowData.get("temp_amount")),
 					narration: user.workflowData.get("temp_narration"),
 					uniqueId: user.coreUserId || user.phoneNumber,
+					assignedPaId: user.assignedPaId,
 					immediate: isImmediate,
 					expiryMinutes: expiryMinutes ? Number(expiryMinutes) : undefined,
 					destinationAccount: {
@@ -2086,9 +2110,13 @@ async function handleEmergencyTransferFlow(user, message) {
 			}
 
 			if (result) {
+				user.emergencyTransferLockUntil = new Date(
+					Date.now() + EMERGENCY_TRANSFER_LOCK_MINUTES * 60 * 1000,
+				);
 				const msg = isImmediate ? "✅ *Transfer(s) executed successfully!*" : "✅ *Request submitted successfully!*";
 				const subMsg = isImmediate ? "Your funds are on the way." : `PA will process this within ${expiryMinutes || 60} minutes.`;
-				await sendTextMessage(phoneNumber, `${msg}\n\n${subMsg}\n\nThank you for choosing LuxePass. 🥂`);
+				const lockMsg = `For security, this chat is locked for transactions for ${EMERGENCY_TRANSFER_LOCK_MINUTES} minutes.`;
+				await sendTextMessage(phoneNumber, `${msg}\n\n${subMsg}\n\n${lockMsg}\n\nThank you for choosing LuxePass. 🥂`);
 			} else {
 				throw new Error("Failed to process transfer");
 			}

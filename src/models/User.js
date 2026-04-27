@@ -40,6 +40,10 @@ const userSchema = new mongoose.Schema(
 			type: String,
 			index: true,
 		},
+		emergencyTransferLockUntil: {
+			type: Date,
+			index: true,
+		},
 		referralCode: {
 			type: String,
 			unique: true,

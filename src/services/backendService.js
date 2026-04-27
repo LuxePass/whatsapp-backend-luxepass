@@ -446,6 +446,9 @@ export async function initiateTransfer(data, token = null) {
  *   securityAnswer: string,
  *   amount: number,
  *   narration?: string,
+ *   assignedPaId?: string,
+ *   immediate?: boolean,
+ *   expiryMinutes?: number,
  *   destinationAccount: { bankName: string, bankCode: string, accountNumber: string, accountName: string }
  * }} data
  * @returns {Promise<Object|null>}
@@ -456,6 +459,9 @@ export async function createEmergencyTransfer(data) {
 			securityAnswer: data.securityAnswer,
 			amount: data.amount,
 			narration: data.narration,
+			assignedPaId: data.assignedPaId,
+			immediate: data.immediate,
+			expiryMinutes: data.expiryMinutes,
 			destinationAccount: data.destinationAccount,
 		};
 		if (data.phone != null) body.phone = data.phone;
@@ -510,7 +516,7 @@ export async function resolveAccount(
 /**
  * Creates bulk pending emergency transfers.
  *
- * @param {Object} data - { recipients: Array, securityAnswer: string, uniqueId: string, assignedPaId?: string, immediate?: boolean }
+ * @param {Object} data - { recipients: Array, securityAnswer: string, uniqueId: string, assignedPaId?: string, immediate?: boolean, expiryMinutes?: number }
  * @returns {Promise<Array|null>}
  */
 export async function createBulkEmergencyTransfer(data) {
