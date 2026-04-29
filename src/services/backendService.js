@@ -516,7 +516,11 @@ export async function resolveAccount(
 /**
  * Creates bulk pending emergency transfers.
  *
+<<<<<<< HEAD
  * @param {Object} data - { recipients: Array, securityAnswer: string, uniqueId: string, assignedPaId?: string, immediate?: boolean, expiryMinutes?: number }
+=======
+ * @param {Object} data - { recipients: Array, securityAnswer: string, uniqueId: string, assignedPaId?: string, immediate?: boolean }
+>>>>>>> 36420ee820542e2e0cd40ceaf95e65de589bbe7e
  * @returns {Promise<Array|null>}
  */
 export async function createBulkEmergencyTransfer(data) {
