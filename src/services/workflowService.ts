@@ -244,7 +244,6 @@ async function handleOnboarding(user, message) {
 			return;
 		}
 
-		user.email = input;
 		user.workflowData.set("email", input);
 		user.workflowState = STATES.ONBOARDING_REFERRAL;
 		await user.save();
@@ -261,7 +260,7 @@ async function handleOnboarding(user, message) {
 		const referralInput = input.toUpperCase();
 
 		if (referralInput !== "SKIP") {
-			user.referredBy = referralInput;
+			user.workflowData.set("referredBy", referralInput);
 			logger.info("Referral code captured during onboarding", {
 				phone: user.phoneNumber,
 				code: referralInput,
@@ -271,7 +270,6 @@ async function handleOnboarding(user, message) {
 				// Find the referrer and update their stats
 				const referrer = await User.findOne({ referralCode: referralInput });
 				if (referrer) {
-					referrer.referralCount = (referrer.referralCount || 0) + 1;
 					// Award a sign-up bonus, e.g., 500 NGN
 					const rewardAmount = 500;
 					referrer.rewardsEarned = (referrer.rewardsEarned || 0) + rewardAmount;
@@ -308,8 +306,8 @@ async function handleOnboarding(user, message) {
 			const coreUser = await backendService.registerUser({
 				name: user.name,
 				phone: user.phoneNumber,
-				email: user.email,
-				referralCode: user.referredBy || undefined,
+				email: user.workflowData.get("email") || `wa_${user.phoneNumber}@luxepass.local`,
+				referralCode: user.workflowData.get("referredBy") || undefined,
 			});
 
 			if (coreUser?.uniqueId) {
@@ -811,7 +809,6 @@ async function handleServiceMenu(user, message) {
 	switch (choice) {
 		case "service_bookings":
 			user.workflowData = new Map();
-			if (user.email) user.workflowData.set("email", user.email);
 			user.workflowState = STATES.BOOKING_CATEGORY;
 			await user.save();
 
@@ -852,7 +849,6 @@ async function handleServiceMenu(user, message) {
 
 		case "service_concierge":
 			user.workflowData = new Map();
-			if (user.email) user.workflowData.set("email", user.email);
 			user.workflowState = STATES.CONCIERGE_CATEGORY;
 			await user.save();
 

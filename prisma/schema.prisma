@@ -11,7 +11,6 @@ model User {
   id                         String    @id
   phoneNumber                String    @unique
   name                       String?
-  email                      String?
   isLiveChatActive           Boolean   @default(false)
   workflowState              String    @default("MAIN_MENU")
   workflowData               Json?
@@ -20,8 +19,6 @@ model User {
   assignedPaId               String?
   emergencyTransferLockUntil DateTime?
   referralCode               String?   @unique
-  referredBy                 String?
-  referralCount              Int       @default(0)
   rewardsEarned              Float     @default(0)
   savedBankAccounts          Json?
   createdAt                  DateTime  @default(now())
