@@ -72,6 +72,10 @@ const STATES = {
 	// Referral Withdrawal
 	REFERRAL_WITHDRAW_SELECT_BANK: "REFERRAL_WITHDRAW_SELECT_BANK",
 	REFERRAL_WITHDRAW_CONFIRM: "REFERRAL_WITHDRAW_CONFIRM",
+
+	// Change Security Question
+	WALLET_CHANGE_SECURITY_PICK: "WALLET_CHANGE_SECURITY_PICK",
+	WALLET_CHANGE_SECURITY_ANSWER: "WALLET_CHANGE_SECURITY_ANSWER",
 };
 
 const SECURITY_QUESTIONS = [
@@ -152,6 +156,11 @@ async function sendWalletMenu(to) {
 						id: "wallet_manage_accounts",
 						title: "🏦 Manage Accounts",
 						description: "View or delete saved bank accounts",
+					},
+					{
+						id: "wallet_change_security",
+						title: "🔑 Change Security Q",
+						description: "Update your security question & answer",
 					},
 					{ id: "menu", title: "⬅️ Back", description: "Return to main menu" },
 				],
@@ -705,6 +714,8 @@ async function routeWorkflowState(user, message) {
 		STATES.WALLET_ADD_ACCOUNT_NAME,
 		STATES.WALLET_MANAGE_ACCOUNTS,
 		STATES.WALLET_DELETE_ACCOUNT_SELECT,
+		STATES.WALLET_CHANGE_SECURITY_PICK,
+		STATES.WALLET_CHANGE_SECURITY_ANSWER,
 	]);
 
 	if (onboardingStates.has(state)) return handleOnboarding(user, message);
@@ -1634,6 +1645,62 @@ export async function handleWalletFlow(user, message) {
 		return;
 	}
 
+	// ── WALLET_CHANGE_SECURITY_PICK ──────────────────────────────────────────
+	if (user.workflowState === STATES.WALLET_CHANGE_SECURITY_PICK) {
+		if (choice.startsWith("sq_")) {
+			const index = parseInt(choice.replace("sq_", ""), 10);
+			if (isNaN(index) || index < 0 || index >= SECURITY_QUESTIONS.length) {
+				await sendTextMessage(phoneNumber, "Please select a valid question from the list.");
+				return;
+			}
+			const question = SECURITY_QUESTIONS[index];
+			user.workflowData.set("newSecurityQuestion", question);
+			user.workflowState = STATES.WALLET_CHANGE_SECURITY_ANSWER;
+			await user.save();
+			await sendTextMessage(
+				phoneNumber,
+				`Got it. Now enter your answer for:\n\n_"${question}"_`,
+			);
+		} else {
+			await sendTextMessage(phoneNumber, "Please select a question from the list above.");
+		}
+		return;
+	}
+
+	// ── WALLET_CHANGE_SECURITY_ANSWER ─────────────────────────────────────────
+	if (user.workflowState === STATES.WALLET_CHANGE_SECURITY_ANSWER) {
+		const answer = message.trim();
+		if (answer.length < 2) {
+			await sendTextMessage(phoneNumber, "The answer must be at least 2 characters. Please try again.");
+			return;
+		}
+		const question = user.workflowData.get("newSecurityQuestion");
+		const coreUserId = user.coreUserId || user.workflowData.get("coreUserId");
+		try {
+			const success = await backendService.setSecurityQuestion({
+				userIdentifier: coreUserId,
+				question,
+				answer,
+			});
+			if (!success) throw new Error("setSecurityQuestion returned false");
+			user.workflowData.delete("newSecurityQuestion");
+			user.workflowState = STATES.WALLET_MENU;
+			await user.save();
+			await sendTextMessage(
+				phoneNumber,
+				"✅ *Security question updated successfully!*\n\nYour new security question is active.",
+			);
+			await sendWalletMenu(phoneNumber);
+		} catch (err) {
+			logger.error("Error updating security question", { phoneNumber, err: err.message });
+			await sendTextMessage(
+				phoneNumber,
+				"❌ Failed to update security question. Please try again or type *Menu* to return.",
+			);
+		}
+		return;
+	}
+
 	// ── WALLET_MANAGE_ACCOUNTS ────────────────────────────────────────────────
 	if (user.workflowState === STATES.WALLET_MANAGE_ACCOUNTS) {
 		if (choice === "wallet_add_account") {
@@ -1717,6 +1784,26 @@ export async function handleWalletFlow(user, message) {
 			user.workflowState = STATES.WALLET_MANAGE_ACCOUNTS;
 			await user.save();
 			await handleWalletManageAccountsMenu(user);
+			return;
+		}
+
+		if (choice === "wallet_change_security") {
+			user.workflowState = STATES.WALLET_CHANGE_SECURITY_PICK;
+			await user.save();
+			await sendListMessage(
+				phoneNumber,
+				"🔑 *Change Security Question*\n\nSelect your new security question:",
+				"Select Question",
+				[{
+					title: "Security Questions",
+					rows: SECURITY_QUESTIONS.map((q, i) => ({
+						id: `sq_${i}`,
+						title: `${i + 1}. ${q.length > 60 ? q.slice(0, 57) + "..." : q}`,
+						description: q,
+					})),
+				}],
+				"Change Security Question 🔑",
+			);
 			return;
 		}
 
