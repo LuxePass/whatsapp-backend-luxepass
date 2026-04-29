@@ -290,7 +290,7 @@ npm test
 - [ ] Set `NODE_ENV=production`
 - [ ] Use HTTPS for webhook URL
 - [ ] Configure proper CORS origins
-- [ ] Set up database (replace in-memory storage)
+- [ ] Set up PostgreSQL and run Prisma schema sync
 - [ ] Configure log rotation
 - [ ] Set up monitoring/alerting
 - [ ] Use environment-specific secrets
@@ -299,24 +299,25 @@ npm test
 
 ## 🔄 Database Integration
 
-Currently uses in-memory storage. To use a database:
+This project now uses Prisma with PostgreSQL for durable storage.
 
-1. Install your preferred database driver (MongoDB, PostgreSQL, etc.)
-2. Replace functions in `src/utils/messageStorage.js`
-3. Update imports in controllers
+1. Set `DATABASE_URL` in your `.env`.
+2. Generate the Prisma client:
 
-Example with MongoDB:
+```bash
+npm run prisma:generate
+```
 
-```javascript
-import { MongoClient } from 'mongodb';
+3. Push schema to your database:
 
-const client = new MongoClient(process.env.MONGODB_URI);
-await client.connect();
-const db = client.db('whatsapp');
+```bash
+npm run prisma:db:push
+```
 
-export async function addMessage(message) {
-  await db.collection('messages').insertOne(message);
-}
+4. Start the server:
+
+```bash
+npm run dev
 ```
 
 ## 📚 API Documentation

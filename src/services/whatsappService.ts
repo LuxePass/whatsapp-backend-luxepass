@@ -1,0 +1,688 @@
+import axios from "axios";
+import config from "../config/env.ts";
+import logger from "../config/logger.ts";
+import { addMessage } from "../utils/messageStorage.ts";
+
+const graphApiBaseUrl = `https://graph.facebook.com/${config.meta.graphApiVersion}`;
+
+// Validate configuration on module load
+if (!config.meta.phoneNumberId) {
+	logger.error("⚠️  META_PHONE_NUMBER_ID is not set! Messages cannot be sent.");
+}
+
+if (!config.meta.token) {
+	logger.error("⚠️  META_TOKEN is not set! API calls will fail.");
+}
+
+/**
+ * Create axios instance with default config
+ */
+const apiClient = axios.create({
+	baseURL: graphApiBaseUrl,
+	headers: {
+		Authorization: `Bearer ${config.meta.token}`,
+		"Content-Type": "application/json",
+	},
+	timeout: 30000,
+});
+
+/**
+ * Send a text message via WhatsApp Business API
+ * @param {string} to - Recipient phone number (with country code, no +)
+ * @param {string} message - Message text
+ * @returns {Promise<Object>} API response
+ */
+export async function sendTextMessage(to, message) {
+	try {
+		// Validate phone number ID is set
+		if (!config.meta.phoneNumberId) {
+			throw new Error(
+				"META_PHONE_NUMBER_ID is not configured. Please set it in your environment variables.",
+			);
+		}
+
+		// Normalize phone number (remove + and spaces)
+		const normalizedTo = to.replace(/\D/g, "");
+
+		// Validate phone number format
+		if (!normalizedTo || normalizedTo.length < 10 || normalizedTo.length > 15) {
+			throw new Error(
+				`Invalid phone number format: ${to}. Phone number must be 10-15 digits.`,
+			);
+		}
+
+		const payload: any = {
+			messaging_product: "whatsapp",
+			recipient_type: "individual",
+			to: normalizedTo,
+			type: "text",
+			text: {
+				body: message,
+			},
+		};
+
+		logger.info("Sending text message", {
+			to: normalizedTo,
+			phoneNumberId: config.meta.phoneNumberId,
+		});
+
+		const response = await apiClient.post(
+			`/${config.meta.phoneNumberId}/messages`,
+			payload,
+		);
+
+		logger.info("Text message sent successfully", {
+			messageId: response.data.messages?.[0]?.id,
+			to: normalizedTo,
+		});
+
+		// Save message to database
+		try {
+			const messageId = response.data.messages?.[0]?.id;
+			await addMessage({
+				messageId,
+				from: "sys", // System/Bot
+				to: normalizedTo,
+				content: message,
+				type: "text",
+				status: "sent",
+				timestamp: new Date(),
+			});
+		} catch (dbError) {
+			logger.error("Failed to save sent message to DB", {
+				error: dbError.message,
+			});
+		}
+
+		return {
+			success: true,
+			messageId: response.data.messages?.[0]?.id,
+			data: response.data,
+		};
+	} catch (error) {
+		logger.error("Error sending text message", {
+			to,
+			phoneNumberId: config.meta.phoneNumberId,
+			error: error.response?.data || error.message,
+			errorStack: error.stack,
+		});
+
+		// Return more detailed error information
+		const errorData = error.response?.data?.error || error.response?.data;
+		return {
+			success: false,
+			error: errorData || {
+				message: error.message || "Failed to send message",
+				code: error.response?.status || 500,
+				type: error.response?.data?.error?.type || "UnknownError",
+			},
+		};
+	}
+}
+
+/**
+ * Send an interactive message with buttons
+ * @param {string} to - Recipient phone number
+ * @param {string} bodyText - Message body text
+ * @param {Array} buttons - Array of button objects with id and title
+ * @param {string} headerText - Optional header text
+ * @param {string} footerText - Optional footer text
+ * @returns {Promise<Object>} API response
+ */
+export async function sendInteractiveMessage(
+	to,
+	bodyText,
+	buttons,
+	headerText = null,
+	footerText = null,
+) {
+	try {
+		const normalizedTo = to.replace(/\D/g, "");
+
+		// WhatsApp allows max 3 buttons for reply buttons
+		if (buttons.length > 3) {
+			throw new Error("WhatsApp interactive messages support maximum 3 buttons");
+		}
+
+		const payload: any = {
+			messaging_product: "whatsapp",
+			recipient_type: "individual",
+			to: normalizedTo,
+			type: "interactive",
+			interactive: {
+				type: "button",
+				body: {
+					text: bodyText,
+				},
+				action: {
+					buttons: buttons.map((btn, index) => ({
+						type: "reply",
+						reply: {
+							id: btn.id || `btn_${index}`,
+							title: btn.title.substring(0, 20), // WhatsApp limit is 20 chars
+						},
+					})),
+				},
+			},
+		};
+
+		// Add optional header
+		if (headerText) {
+			payload.interactive.header = {
+				type: "text",
+				text: headerText,
+			};
+		}
+
+		// Add optional footer
+		if (footerText) {
+			payload.interactive.footer = {
+				text: footerText,
+			};
+		}
+
+		logger.info("Sending interactive message", {
+			to: normalizedTo,
+			buttonCount: buttons.length,
+		});
+
+		const response = await apiClient.post(
+			`/${config.meta.phoneNumberId}/messages`,
+			payload,
+		);
+
+		logger.info("Interactive message sent successfully", {
+			messageId: response.data.messages?.[0]?.id,
+			to: normalizedTo,
+		});
+
+		// Save message to database
+		try {
+			const messageId = response.data.messages?.[0]?.id;
+			await addMessage({
+				messageId,
+				from: "sys",
+				to: normalizedTo,
+				content: bodyText, // Store the main text as content
+				type: "interactive",
+				status: "sent",
+				timestamp: new Date(),
+			});
+		} catch (dbError) {
+			logger.error("Failed to save sent interactive message to DB", {
+				error: dbError.message,
+			});
+		}
+
+		return {
+			success: true,
+			messageId: response.data.messages?.[0]?.id,
+			data: response.data,
+		};
+	} catch (error) {
+		logger.error("Error sending interactive message", {
+			to,
+			error: error.response?.data || error.message,
+		});
+
+		return {
+			success: false,
+			error: error.response?.data?.error || {
+				message: error.message,
+				code: error.response?.status,
+			},
+		};
+	}
+}
+
+/**
+ * Ensures mediaUrl is a valid absolute URI for WhatsApp.
+ * WhatsApp requires image/video/document/audio link to be a valid URI; relative paths are rejected.
+ */
+function toAbsoluteMediaUrl(mediaUrl) {
+	if (!mediaUrl || typeof mediaUrl !== "string") return mediaUrl;
+	const trimmed = mediaUrl.trim();
+	if (!trimmed) return trimmed;
+	if (/^https?:\/\//i.test(trimmed)) return trimmed;
+	try {
+		const base =
+			process.env.MEDIA_BASE_URL ||
+			process.env.CORE_BACKEND_URL ||
+			"https://backend-luxepass.onrender.com/api/v1";
+		const origin = new URL(base).origin;
+		if (trimmed.startsWith("//")) return "https:" + trimmed;
+		return trimmed.startsWith("/") ? origin + trimmed : origin + "/" + trimmed;
+	} catch (e) {
+		return trimmed;
+	}
+}
+
+/**
+ * Send a media message (image, video, document, audio)
+ * @param {string} to - Recipient phone number
+ * @param {string} mediaUrl - URL of the media file (absolute or relative; relative is resolved against backend origin)
+ * @param {string} type - Media type: 'image', 'video', 'document', 'audio'
+ * @param {string} caption - Optional caption (for image/video)
+ * @param {string} filename - Optional filename (for document)
+ * @returns {Promise<Object>} API response
+ */
+export async function sendMediaMessage(
+	to,
+	mediaUrl,
+	type = "image",
+	caption = null,
+	filename = null,
+) {
+	try {
+		const normalizedTo = to.replace(/\D/g, "");
+		const absoluteMediaUrl = toAbsoluteMediaUrl(mediaUrl);
+
+		const payload: any = {
+			messaging_product: "whatsapp",
+			recipient_type: "individual",
+			to: normalizedTo,
+			type,
+		};
+
+		// Set media-specific fields
+		if (type === "image") {
+			payload.image = {
+				link: absoluteMediaUrl,
+				...(caption && { caption }),
+			};
+		} else if (type === "video") {
+			payload.video = {
+				link: absoluteMediaUrl,
+				...(caption && { caption }),
+			};
+		} else if (type === "document") {
+			payload.document = {
+				link: absoluteMediaUrl,
+				...(filename && { filename }),
+			};
+		} else if (type === "audio") {
+			payload.audio = {
+				link: absoluteMediaUrl,
+			};
+		} else {
+			throw new Error(`Unsupported media type: ${type}`);
+		}
+
+		logger.info("Sending media message", {
+			to: normalizedTo,
+			type,
+			mediaUrl: absoluteMediaUrl,
+		});
+
+		const response = await apiClient.post(
+			`/${config.meta.phoneNumberId}/messages`,
+			payload,
+		);
+
+		logger.info("Media message sent successfully", {
+			messageId: response.data.messages?.[0]?.id,
+			to: normalizedTo,
+		});
+
+		// Save message to database
+		try {
+			const messageId = response.data.messages?.[0]?.id;
+			await addMessage({
+				messageId,
+				from: "sys",
+				to: normalizedTo,
+				content: caption || `[${type}] ${absoluteMediaUrl}`,
+				type: type,
+				status: "sent",
+				timestamp: new Date(),
+			});
+		} catch (dbError) {
+			logger.error("Failed to save sent media message to DB", {
+				error: dbError.message,
+			});
+		}
+
+		return {
+			success: true,
+			messageId: response.data.messages?.[0]?.id,
+			data: response.data,
+		};
+	} catch (error) {
+		logger.error("Error sending media message", {
+			to,
+			type,
+			error: error.response?.data || error.message,
+		});
+
+		return {
+			success: false,
+			error: error.response?.data?.error || {
+				message: error.message,
+				code: error.response?.status,
+			},
+		};
+	}
+}
+
+/**
+ * Send a template message
+ * @param {string} to - Recipient phone number
+ * @param {string} templateName - Template name (approved in Meta Business Manager)
+ * @param {string} languageCode - Language code (e.g., 'en', 'es')
+ * @param {Array} components - Template components (parameters, buttons, etc.)
+ * @returns {Promise<Object>} API response
+ */
+export async function sendTemplateMessage(
+	to,
+	templateName,
+	languageCode = "en",
+	components = [],
+) {
+	try {
+		const normalizedTo = to.replace(/\D/g, "");
+
+		const payload = {
+			messaging_product: "whatsapp",
+			recipient_type: "individual",
+			to: normalizedTo,
+			type: "template",
+			template: {
+				name: templateName,
+				language: {
+					code: languageCode,
+				},
+				...(components.length > 0 && { components }),
+			},
+		};
+
+		logger.info("Sending template message", {
+			to: normalizedTo,
+			templateName,
+			languageCode,
+		});
+
+		const response = await apiClient.post(
+			`/${config.meta.phoneNumberId}/messages`,
+			payload,
+		);
+
+		logger.info("Template message sent successfully", {
+			messageId: response.data.messages?.[0]?.id,
+			to: normalizedTo,
+		});
+
+		// Save message to database
+		try {
+			const messageId = response.data.messages?.[0]?.id;
+			await addMessage({
+				messageId,
+				from: "sys",
+				to: normalizedTo,
+				content: `[Template: ${templateName}]`,
+				type: "template",
+				status: "sent",
+				timestamp: new Date(),
+			});
+		} catch (dbError) {
+			logger.error("Failed to save sent template message to DB", {
+				error: dbError.message,
+			});
+		}
+
+		return {
+			success: true,
+			messageId: response.data.messages?.[0]?.id,
+			data: response.data,
+		};
+	} catch (error) {
+		logger.error("Error sending template message", {
+			to,
+			templateName,
+			error: error.response?.data || error.message,
+		});
+
+		return {
+			success: false,
+			error: error.response?.data?.error || {
+				message: error.message,
+				code: error.response?.status,
+			},
+		};
+	}
+}
+
+/**
+ * Send a marketing template message via WhatsApp Marketing Messages API.
+ * Uses the marketing_messages endpoint (not /messages). Requires an approved marketing template.
+ * @see https://developers.facebook.com/documentation/business-messaging/whatsapp/marketing-messages/get-started
+ * @param {string} to - Recipient phone number
+ * @param {string} templateName - Approved marketing template name
+ * @param {string} languageCode - Language code (e.g. en, en_US)
+ * @param {Array<{ type: string; parameters: Array<{ type: string; text?: string }> }>} components - Template components (e.g. body with parameters)
+ * @returns {Promise<Object>} API response
+ */
+export async function sendMarketingTemplateMessage(
+	to,
+	templateName,
+	languageCode = "en",
+	components = [],
+) {
+	try {
+		if (!config.meta.phoneNumberId) {
+			throw new Error(
+				"META_PHONE_NUMBER_ID is not configured. Please set it in your environment variables.",
+			);
+		}
+
+		const normalizedTo = to.replace(/\D/g, "");
+		if (!normalizedTo || normalizedTo.length < 10 || normalizedTo.length > 15) {
+			throw new Error(
+				`Invalid phone number format: ${to}. Phone number must be 10-15 digits.`,
+			);
+		}
+
+		const payload = {
+			messaging_product: "whatsapp",
+			recipient_type: "individual",
+			to: normalizedTo,
+			type: "template",
+			template: {
+				name: templateName,
+				language: { code: languageCode },
+				components:
+					components.length ? components : [{ type: "body", parameters: [] }],
+			},
+		};
+
+		logger.info("Sending marketing template message", {
+			to: normalizedTo,
+			templateName,
+			phoneNumberId: config.meta.phoneNumberId,
+		});
+
+		const response = await apiClient.post(
+			`/${config.meta.phoneNumberId}/marketing_messages`,
+			payload,
+		);
+
+		logger.info("Marketing message sent successfully", {
+			messageId: response.data.messages?.[0]?.id,
+			to: normalizedTo,
+		});
+
+		try {
+			const messageId = response.data.messages?.[0]?.id;
+			await addMessage({
+				messageId,
+				from: "sys",
+				to: normalizedTo,
+				content: `[Marketing template: ${templateName}]`,
+				type: "template",
+				status: "sent",
+				timestamp: new Date(),
+			});
+		} catch (dbError) {
+			logger.error("Failed to save sent marketing message to DB", {
+				error: dbError.message,
+			});
+		}
+
+		return {
+			success: true,
+			messageId: response.data.messages?.[0]?.id,
+			data: response.data,
+		};
+	} catch (error) {
+		logger.error("Error sending marketing template message", {
+			to,
+			templateName,
+			error: error.response?.data || error.message,
+		});
+
+		return {
+			success: false,
+			error: error.response?.data?.error || {
+				message: error.message,
+				code: error.response?.status,
+			},
+		};
+	}
+}
+
+/**
+ * Mark a message as read
+ * @param {string} messageId - WhatsApp message ID
+ * @returns {Promise<Object>} API response
+ */
+export async function markMessageAsRead(messageId) {
+	try {
+		const payload = {
+			messaging_product: "whatsapp",
+			status: "read",
+			message_id: messageId,
+		};
+
+		const response = await apiClient.post(
+			`/${config.meta.phoneNumberId}/messages`,
+			payload,
+		);
+
+		return {
+			success: true,
+			data: response.data,
+		};
+	} catch (error) {
+		logger.error("Error marking message as read", {
+			messageId,
+			error: error.response?.data || error.message,
+		});
+
+		return {
+			success: false,
+			error: error.response?.data?.error || {
+				message: error.message,
+				code: error.response?.status,
+			},
+		};
+	}
+}
+
+/**
+ * Send a list message (WhatsApp modal)
+ * @param {string} to - Recipient phone number
+ * @param {string} bodyText - Message body text
+ * @param {string} buttonText - Text for the button that opens the list (max 20 chars)
+ * @param {Array} sections - Array of section objects { title, rows: [{ id, title, description }] }
+ * @param {string} headerText - Optional header text
+ * @param {string} footerText - Optional footer text
+ * @returns {Promise<Object>} API response
+ */
+export async function sendListMessage(
+	to,
+	bodyText,
+	buttonText,
+	sections,
+	headerText = null,
+	footerText = null,
+) {
+	try {
+		const normalizedTo = to.replace(/\D/g, "");
+
+		const payload = {
+			messaging_product: "whatsapp",
+			recipient_type: "individual",
+			to: normalizedTo,
+			type: "interactive",
+			interactive: {
+				type: "list",
+				header: headerText ? { type: "text", text: headerText } : undefined,
+				body: { text: bodyText },
+				footer: footerText ? { text: footerText } : undefined,
+				action: {
+					button: buttonText.substring(0, 20),
+					sections: sections.map((section) => ({
+						title: section.title?.substring(0, 24),
+						rows: section.rows.map((row) => ({
+							id: row.id,
+							title: row.title.substring(0, 24),
+							description: row.description?.substring(0, 72),
+						})),
+					})),
+				},
+			},
+		};
+
+		logger.info("Sending list message", {
+			to: normalizedTo,
+			sectionCount: sections.length,
+		});
+
+		const response = await apiClient.post(
+			`/${config.meta.phoneNumberId}/messages`,
+			payload,
+		);
+
+		logger.info("List message sent successfully", {
+			messageId: response.data.messages?.[0]?.id,
+			to: normalizedTo,
+		});
+
+		// Save message to database
+		try {
+			const messageId = response.data.messages?.[0]?.id;
+			await addMessage({
+				messageId,
+				from: "sys",
+				to: normalizedTo,
+				content: bodyText,
+				type: "list",
+				status: "sent",
+				timestamp: new Date(),
+			});
+		} catch (dbError) {
+			logger.error("Failed to save sent list message to DB", {
+				error: dbError.message,
+			});
+		}
+
+		return {
+			success: true,
+			messageId: response.data.messages?.[0]?.id,
+			data: response.data,
+		};
+	} catch (error) {
+		logger.error("Error sending list message", {
+			to,
+			error: error.response?.data || error.message,
+		});
+
+		return {
+			success: false,
+			error: error.response?.data?.error || {
+				message: error.message,
+				code: error.response?.status,
+			},
+		};
+	}
+}
+

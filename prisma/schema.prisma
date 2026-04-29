@@ -1,0 +1,81 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                         String    @id
+  phoneNumber                String    @unique
+  name                       String?
+  email                      String?
+  isLiveChatActive           Boolean   @default(false)
+  workflowState              String    @default("MAIN_MENU")
+  workflowData               Json?
+  lastInteraction            DateTime  @default(now())
+  coreUserId                 String?
+  assignedPaId               String?
+  emergencyTransferLockUntil DateTime?
+  referralCode               String?   @unique
+  referredBy                 String?
+  referralCount              Int       @default(0)
+  rewardsEarned              Float     @default(0)
+  savedBankAccounts          Json?
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
+
+  @@index([coreUserId])
+  @@index([assignedPaId])
+}
+
+model Conversation {
+  id              String   @id
+  conversationId  String   @unique
+  phoneNumber     String
+  name            String?
+  lastMessage     String?
+  lastMessageTime DateTime @default(now())
+  unreadCount     Int      @default(0)
+  assignedPaId    String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([phoneNumber])
+}
+
+model Message {
+  id             String   @id
+  messageId      String   @unique
+  conversationId String
+  from           String?
+  to             String?
+  content        String?
+  type           String   @default("text")
+  status         String   @default("received")
+  timestamp      DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([conversationId])
+}
+
+model Booking {
+  id              String   @id
+  bookingId       String   @unique
+  user            String?
+  type            String?
+  tier            String?
+  details         Json?
+  amount          Float    @default(0)
+  currency        String   @default("NGN")
+  status          String   @default("pending")
+  paymentReference String?
+  paymentMetadata Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([user])
+}
