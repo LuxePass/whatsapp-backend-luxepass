@@ -14,11 +14,11 @@ import { rawBodyMiddleware } from "./src/middlewares/rawBody.ts";
 import webhookRoutes from "./src/routes/webhookRoutes.ts";
 import messageRoutes from "./src/routes/messageRoutes.ts";
 import conversationRoutes from "./src/routes/conversationRoutes.ts";
-import paymentRoutes from "./src/routes/paymentRoutes.ts";
 import liveChatRoutes from "./src/routes/liveChatRoutes.ts";
 import referralRoutes from "./src/routes/referralRoutes.ts";
 import userRoutes from "./src/routes/userRoutes.ts";
 import marketingRoutes from "./src/routes/marketingRoutes.ts";
+import internalRoutes from "./src/routes/internalRoutes.ts";
 import { connectDB } from "./src/config/database.ts";
 
 const app = express();
@@ -51,11 +51,11 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use("/webhook", webhookRoutes);
 app.use("/api/messages", messageRoutes);
 app.use("/api/conversations", conversationRoutes);
-app.use("/api/payment", paymentRoutes);
 app.use("/api/livechat", liveChatRoutes);
 app.use("/api/referrals", referralRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/marketing", marketingRoutes);
+app.use("/api/internal", internalRoutes);
 
 // 404 handler
 app.use(notFoundHandler);
