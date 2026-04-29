@@ -11,6 +11,7 @@ jest.unstable_mockModule("../src/services/whatsappService.js", () => ({
 	sendTemplateMessage: jest.fn(),
 	sendInteractiveMessage: jest.fn(),
 	sendListMessage: mockSendListMessage,
+	sendMediaMessage: jest.fn().mockResolvedValue({ success: true }),
 }));
 
 jest.unstable_mockModule("../src/services/backendService.js", () => ({
@@ -32,7 +33,7 @@ jest.unstable_mockModule("../src/models/User.js", () => ({
 }));
 
 // Import after mocking
-const { handleWalletMenu } = await import("../src/services/workflowService.js");
+const { handleWalletFlow } = await import("../src/services/workflowService.js");
 
 describe("Wallet Fixes Verification", () => {
 	let mockUser;
@@ -49,7 +50,7 @@ describe("Wallet Fixes Verification", () => {
 	});
 
 	test("should send list message for wallet menu", async () => {
-		await handleWalletMenu(mockUser, "wallet_menu");
+		await handleWalletFlow(mockUser, "wallet_menu");
 
 		expect(mockSendListMessage).toHaveBeenCalledWith(
 			"1234567890",
@@ -78,7 +79,7 @@ describe("Wallet Fixes Verification", () => {
 			virtualAccount: null,
 		});
 
-		await handleWalletMenu(mockUser, "Fluffy");
+		await handleWalletFlow(mockUser, "Fluffy");
 
 		expect(mockVerifySecurityAnswer).toHaveBeenCalledWith("core-123", "Fluffy");
 		expect(mockGetWallet).toHaveBeenCalledWith("core-123", "mock-token-abc");
@@ -99,7 +100,7 @@ describe("Wallet Fixes Verification", () => {
 		mockVerifySecurityAnswer.mockResolvedValue(null);
 		mockGetWallet.mockResolvedValue(null); // Shouldn't be called
 
-		await handleWalletMenu(mockUser, "wrong_answer");
+		await handleWalletFlow(mockUser, "wrong_answer");
 
 		expect(mockVerifySecurityAnswer).toHaveBeenCalledWith(
 			"core-123",

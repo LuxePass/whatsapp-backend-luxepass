@@ -157,6 +157,7 @@ async function sendWalletMenu(to) {
 				],
 			},
 		],
+		"Wallet Services 💰",
 	);
 }
 
