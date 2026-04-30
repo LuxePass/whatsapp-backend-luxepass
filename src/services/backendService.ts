@@ -4,10 +4,7 @@ import logger from "../config/logger.ts";
 // ─── HTTP Client ───────────────────────────────────────────────────────────────
 
 const CORE_BACKEND_URL =
-	process.env.CORE_BACKEND_URL ||
-	(process.env.NODE_ENV === "development" ?
-		"http://localhost:4000/api/v1"
-	: 	"https://backend-luxepass.onrender.com/api/v1");
+	process.env.CORE_BACKEND_URL || "https://backend-luxepass.onrender.com/api/v1";
 
 /**
  * Axios instance with a 15-second request timeout.

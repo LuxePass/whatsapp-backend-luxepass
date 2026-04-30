@@ -17,14 +17,12 @@ export const config = {
 		/** Language code for marketing template (e.g. en_US, en) */
 		marketingTemplateLanguage:
 			process.env.META_MARKETING_TEMPLATE_LANGUAGE || "en",
-		appId: process.env.META_APP_ID || "855384630353011",
-		appSecret: process.env.META_APP_SECRET || "4b72cc476bc3a8dfd4b4d6194352437c",
+		appId: process.env.META_APP_ID || "",
+		appSecret: process.env.META_APP_SECRET || "",
 		graphApiVersion: process.env.META_GRAPH_API_VERSION || "v22.0",
 	},
 	webhook: {
-		verifyToken:
-			process.env.WEBHOOK_VERIFY_TOKEN ||
-			"c4e902f164baa7d7272332447fd2df324bcef149b40e07e926f20e721a9abc0a",
+		verifyToken: process.env.WEBHOOK_VERIFY_TOKEN || "",
 	},
 	server: {
 		port: parseInt(process.env.PORT || "3500", 10),

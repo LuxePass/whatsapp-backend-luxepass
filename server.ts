@@ -95,11 +95,18 @@ const startServer = async () => {
 		logger.info("Persistence layer ready");
 
 		server = app.listen(PORT, () => {
+			const baseUrl =
+				process.env.APP_URL ||
+				(process.env.RAILWAY_PUBLIC_DOMAIN
+					? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+					: null) ||
+				process.env.RENDER_EXTERNAL_URL ||
+				`http://localhost:${PORT}`;
 			logger.info(`🚀 WhatsApp Backend Server running on port ${PORT}`);
 			logger.info(`📝 Environment: ${config.server.nodeEnv}`);
-			logger.info(`🌐 Health check: http://localhost:${PORT}/health`);
-			logger.info(`📨 Webhook endpoint: http://localhost:${PORT}/webhook`);
-			logger.info(`💬 API base: http://localhost:${PORT}/api`);
+			logger.info(`🌐 Health check: ${baseUrl}/health`);
+			logger.info(`📨 Webhook endpoint: ${baseUrl}/webhook`);
+			logger.info(`💬 API base: ${baseUrl}/api`);
 		});
 	} catch (error) {
 		logger.error("Failed to start server:", error);
