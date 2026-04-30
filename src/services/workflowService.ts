@@ -1327,15 +1327,31 @@ export async function handleWalletFlow(user: UserDoc, message: string): Promise<
   if (user.workflowState === WorkflowState.WALLET_VERIFY_SECURITY) {
     const securityAnswer = message.trim();
     const pendingAction = user.workflowData.get("walletPendingAction");
-    const coreUserId = user.coreUserId ?? user.workflowData.get("coreUserId");
+    let coreUserId = user.coreUserId ?? (user.workflowData.get("coreUserId") as string | undefined);
 
+    // Try to recover coreUserId from core backend if missing
     if (!coreUserId) {
-      await sendTextMessage(phoneNumber, "We couldn't verify your identity. Please type *Menu* and try again.");
-      return;
+      try {
+        const coreCheck = await backendService.checkUserExists(user.phoneNumber);
+        if (coreCheck?.uniqueId) {
+          coreUserId = coreCheck.uniqueId as string;
+          user.coreUserId = coreUserId;
+          await user.save();
+          logger.info("Recovered coreUserId during wallet security verification", { phoneNumber, coreUserId });
+        }
+      } catch (recoverErr) {
+        logger.warn("Could not recover coreUserId during security verification", {
+          phoneNumber,
+          error: (recoverErr as Error).message,
+        });
+      }
     }
 
+    // Fall back to phone number — matches what setSecurityQuestion used during onboarding
+    const identifier = coreUserId ?? user.phoneNumber;
+
     try {
-      const token = await backendService.verifySecurityAnswer(coreUserId, securityAnswer);
+      const token = await backendService.verifySecurityAnswer(identifier, securityAnswer);
       if (!token) {
         await sendTextMessage(
           phoneNumber,
@@ -1344,7 +1360,7 @@ export async function handleWalletFlow(user: UserDoc, message: string): Promise<
         return;
       }
 
-      const wallet = await backendService.getWallet(coreUserId, token);
+      const wallet = await backendService.getWallet(identifier, token);
       if (!wallet) {
         await sendTextMessage(
           phoneNumber,
@@ -1450,10 +1466,11 @@ export async function handleWalletFlow(user: UserDoc, message: string): Promise<
       return;
     }
     const question = user.workflowData.get("newSecurityQuestion") ?? "";
-    const coreUserId = user.coreUserId ?? user.workflowData.get("coreUserId");
+    const coreUserId = user.coreUserId ?? (user.workflowData.get("coreUserId") as string | undefined);
+    const identifier = coreUserId ?? user.phoneNumber;
 
     try {
-      const success = await backendService.setSecurityQuestion({ userIdentifier: coreUserId, question, answer });
+      const success = await backendService.setSecurityQuestion({ userIdentifier: identifier, question, answer });
       if (!success) throw new Error("setSecurityQuestion returned false");
       user.workflowData.delete("newSecurityQuestion");
       user.workflowState = WorkflowState.WALLET_MENU;
@@ -1579,11 +1596,18 @@ export async function handleWalletFlow(user: UserDoc, message: string): Promise<
 async function promptWalletSecurityVerification(user: UserDoc, pendingAction: string): Promise<void> {
   user.workflowState = WorkflowState.WALLET_VERIFY_SECURITY;
   user.workflowData.set("walletPendingAction", pendingAction);
-  await user.save();
 
   let prompt = "🔐 *Security Verification*\n\nTo access your wallet, please answer your security question:";
   try {
     const securityInfo = await backendService.checkUserExists(user.phoneNumber);
+    // Save coreUserId if not already set
+    if (securityInfo?.uniqueId && !user.coreUserId) {
+      user.coreUserId = securityInfo.uniqueId as string;
+      logger.info("coreUserId recovered during wallet security prompt", {
+        phoneNumber: user.phoneNumber,
+        coreUserId: user.coreUserId,
+      });
+    }
     if (securityInfo?.securityQuestion) {
       prompt += `\n\n*"${securityInfo.securityQuestion}"*`;
     } else {
@@ -1594,6 +1618,7 @@ async function promptWalletSecurityVerification(user: UserDoc, pendingAction: st
     prompt += "\n\n_(Enter the security answer you set during registration)_";
   }
 
+  await user.save();
   await sendTextMessage(user.phoneNumber, prompt);
 }
 
@@ -2063,4 +2088,3 @@ async function autoAssignPA(user: UserDoc): Promise<Record<string, unknown> | nu
     return null;
   }
 }
-
