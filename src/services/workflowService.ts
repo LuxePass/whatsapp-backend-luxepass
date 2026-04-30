@@ -266,7 +266,6 @@ const SIGNUP_COMMANDS = new Set([
   "create account",
   "start over",
   "reset",
-  "restart",
 ]);
 
 export function normalizeMessage(raw: string): string {
@@ -542,6 +541,18 @@ export async function handleWorkflow(from: string, message: string, name: string
     }
 
     if (isSignupCommand(normalized)) {
+      // Only restart onboarding if user is genuinely mid-onboarding.
+      // For already-registered users, treat these commands as "go to main menu".
+      const isInOnboarding = ONBOARDING_STATES.has(user.workflowState as WorkflowStateKey);
+      if (!isInOnboarding) {
+        user.workflowState = WorkflowState.MAIN_MENU;
+        user.workflowData = new Map();
+        user.isLiveChatActive = false;
+        user.assignedPaId = undefined;
+        await user.save();
+        await sendWelcomeMenu(phoneNumber, user.name);
+        return;
+      }
       user.workflowData = new Map();
       user.isLiveChatActive = false;
       user.assignedPaId = undefined;
@@ -1301,22 +1312,7 @@ export async function handleWalletFlow(user: UserDoc, message: string): Promise<
   const choice = message.trim().toLowerCase();
   const { phoneNumber } = user;
 
-  if (isSignupCommand(choice)) {
-    user.workflowData = new Map();
-    user.isLiveChatActive = false;
-    user.assignedPaId = undefined;
-    user.workflowState = user.name ? WorkflowState.ONBOARDING_EMAIL : WorkflowState.ONBOARDING_NAME;
-    await user.save();
-    await sendTextMessage(phoneNumber, "Sure! Let's start your LuxePass sign-up again.");
-    if (user.workflowState === WorkflowState.ONBOARDING_NAME) {
-      await sendTextMessage(phoneNumber, "Welcome to LuxePass! 👋\n\nPlease enter your name to begin:");
-    } else {
-      await sendTextMessage(phoneNumber, "Great! Please provide your email address for account registration:");
-    }
-    return;
-  }
-
-  if (choice === "menu" || choice === "back" || choice === "main menu") {
+  if (choice === "menu" || choice === "back" || choice === "main menu" || isSignupCommand(choice)) {
     user.workflowState = WorkflowState.MAIN_MENU;
     user.workflowData.delete("walletPendingAction");
     await user.save();
