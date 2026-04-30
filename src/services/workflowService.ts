@@ -542,7 +542,7 @@ export async function handleWorkflow(from: string, message: string, name: string
 
     if (isSignupCommand(normalized)) {
       // Only restart onboarding if user is genuinely mid-onboarding.
-      // For already-registered users, treat these commands as "go to main menu".
+      // For already-registered users, guide them to the right place.
       const isInOnboarding = ONBOARDING_STATES.has(user.workflowState as WorkflowStateKey);
       if (!isInOnboarding) {
         user.workflowState = WorkflowState.MAIN_MENU;
@@ -550,6 +550,13 @@ export async function handleWorkflow(from: string, message: string, name: string
         user.isLiveChatActive = false;
         user.assignedPaId = undefined;
         await user.save();
+        await sendTextMessage(
+          phoneNumber,
+          `ℹ️ You already have a LuxePass account, *${user.name || "there"}*!\n\n` +
+            `• To reset your *security question*, go to *Wallet → Change Security Q*\n` +
+            `• To get help with your account, choose *Live Support* from the menu\n\n` +
+            `Returning you to the main menu now.`
+        );
         await sendWelcomeMenu(phoneNumber, user.name);
         return;
       }
@@ -1312,10 +1319,26 @@ export async function handleWalletFlow(user: UserDoc, message: string): Promise<
   const choice = message.trim().toLowerCase();
   const { phoneNumber } = user;
 
-  if (choice === "menu" || choice === "back" || choice === "main menu" || isSignupCommand(choice)) {
+  if (choice === "menu" || choice === "back" || choice === "main menu") {
     user.workflowState = WorkflowState.MAIN_MENU;
     user.workflowData.delete("walletPendingAction");
     await user.save();
+    await sendWelcomeMenu(phoneNumber, user.name);
+    return;
+  }
+
+  if (isSignupCommand(choice)) {
+    // In wallet flow, "reset"/"signup" means they want to reset security question — guide them
+    user.workflowState = WorkflowState.MAIN_MENU;
+    user.workflowData = new Map();
+    await user.save();
+    await sendTextMessage(
+      phoneNumber,
+      `ℹ️ You already have a LuxePass account!\n\n` +
+        `• To reset your *security question*, go to *Wallet → Change Security Q*\n` +
+        `• To get help, choose *Live Support* from the menu\n\n` +
+        `Returning you to the main menu now.`
+    );
     await sendWelcomeMenu(phoneNumber, user.name);
     return;
   }
