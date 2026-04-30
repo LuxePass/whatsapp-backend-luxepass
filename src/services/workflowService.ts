@@ -1,2469 +1,2066 @@
-import User from "../models/User.ts";
+﻿import User from "../models/User.ts";
 import Conversation from "../models/Conversation.ts";
-import {
-	sendTextMessage,
-	sendInteractiveMessage,
-	sendListMessage,
-	sendMediaMessage,
-} from "./whatsappService.ts";
+import { sendTextMessage, sendInteractiveMessage, sendListMessage, sendMediaMessage } from "./whatsappService.ts";
 import logger from "../config/logger.ts";
-import backendService from "./backendService.ts";
+import * as backendService from "./backendService.ts";
 import { generateReferralCode } from "../utils/referralUtils.ts";
+import { getOrCreateConversation } from "../utils/messageStorage.ts";
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// ─── Types & Constants ────────────────────────────────────────────────────────
 
-const STATES = {
-	// Onboarding
-	ONBOARDING_NAME: "ONBOARDING_NAME",
-	ONBOARDING_EMAIL: "ONBOARDING_EMAIL",
-	ONBOARDING_REFERRAL: "ONBOARDING_REFERRAL",
-	ONBOARDING_SECURITY_QUESTION: "ONBOARDING_SECURITY_QUESTION",
-	ONBOARDING_SECURITY_ANSWER: "ONBOARDING_SECURITY_ANSWER",
+export const WorkflowState = {
+  // Onboarding
+  ONBOARDING_NAME: "ONBOARDING_NAME",
+  ONBOARDING_EMAIL: "ONBOARDING_EMAIL",
+  ONBOARDING_REFERRAL: "ONBOARDING_REFERRAL",
+  ONBOARDING_SECURITY_QUESTION: "ONBOARDING_SECURITY_QUESTION",
+  ONBOARDING_SECURITY_ANSWER: "ONBOARDING_SECURITY_ANSWER",
 
-	// Main
-	MAIN_MENU: "MAIN_MENU",
+  // Main
+  MAIN_MENU: "MAIN_MENU",
+  SERVICE_MENU: "SERVICE_MENU",
 
-	// Services
-	SERVICE_MENU: "SERVICE_MENU",
+  // Booking
+  BOOKING_CATEGORY: "BOOKING_CATEGORY",
+  BOOKING_LISTING: "BOOKING_LISTING",
+  BOOKING_PROPERTY_CONFIRM: "BOOKING_PROPERTY_CONFIRM",
+  BOOKING_CHECKIN: "BOOKING_CHECKIN",
+  BOOKING_CHECKOUT: "BOOKING_CHECKOUT",
+  BOOKING_GUESTS: "BOOKING_GUESTS",
+  BOOKING_DETAILS_REQUESTS: "BOOKING_DETAILS_REQUESTS",
+  BOOKING_PAYMENT: "BOOKING_PAYMENT",
 
-	// Booking
-	BOOKING_CATEGORY: "BOOKING_CATEGORY",
-	BOOKING_LISTING: "BOOKING_LISTING",
-	BOOKING_PROPERTY_CONFIRM: "BOOKING_PROPERTY_CONFIRM",
-	BOOKING_CHECKIN: "BOOKING_CHECKIN",
-	BOOKING_CHECKOUT: "BOOKING_CHECKOUT",
-	BOOKING_GUESTS: "BOOKING_GUESTS",
-	BOOKING_DETAILS_REQUESTS: "BOOKING_DETAILS_REQUESTS",
-	BOOKING_PAYMENT: "BOOKING_PAYMENT",
+  // Concierge
+  CONCIERGE_CATEGORY: "CONCIERGE_CATEGORY",
+  CONCIERGE_DEALS: "CONCIERGE_DEALS",
+  CONCIERGE_DETAILS: "CONCIERGE_DETAILS",
+  CONCIERGE_BOOKING: "CONCIERGE_BOOKING",
 
-	// Concierge (Simplified & Restructured)
-	CONCIERGE_CATEGORY: "CONCIERGE_CATEGORY",
-	CONCIERGE_DEALS: "CONCIERGE_DEALS",
-	CONCIERGE_DETAILS: "CONCIERGE_DETAILS",
-	CONCIERGE_BOOKING: "CONCIERGE_BOOKING",
+  // Emergency Transfer
+  EMERGENCY_TRANSFER_CHOOSE_MODE: "EMERGENCY_TRANSFER_CHOOSE_MODE",
+  EMERGENCY_TRANSFER_CHOOSE_EXECUTION: "EMERGENCY_TRANSFER_CHOOSE_EXECUTION",
+  EMERGENCY_TRANSFER_DURATION: "EMERGENCY_TRANSFER_DURATION",
+  EMERGENCY_TRANSFER_AMOUNT: "EMERGENCY_TRANSFER_AMOUNT",
+  EMERGENCY_TRANSFER_NARRATION: "EMERGENCY_TRANSFER_NARRATION",
+  EMERGENCY_TRANSFER_BANK_NAME: "EMERGENCY_TRANSFER_BANK_NAME",
+  EMERGENCY_TRANSFER_BANK_CODE: "EMERGENCY_TRANSFER_BANK_CODE",
+  EMERGENCY_TRANSFER_ACCOUNT_NUMBER: "EMERGENCY_TRANSFER_ACCOUNT_NUMBER",
+  EMERGENCY_TRANSFER_ACCOUNT_NAME: "EMERGENCY_TRANSFER_ACCOUNT_NAME",
+  EMERGENCY_TRANSFER_CONFIRM_RECIPIENT: "EMERGENCY_TRANSFER_CONFIRM_RECIPIENT",
+  EMERGENCY_TRANSFER_BULK_MORE: "EMERGENCY_TRANSFER_BULK_MORE",
+  EMERGENCY_TRANSFER_VERIFY: "EMERGENCY_TRANSFER_VERIFY",
 
-	// Emergency Transfer (to external bank; PA executes)
-	EMERGENCY_TRANSFER_CHOOSE_MODE: "EMERGENCY_TRANSFER_CHOOSE_MODE", // Single vs Bulk
-	EMERGENCY_TRANSFER_CHOOSE_EXECUTION: "EMERGENCY_TRANSFER_CHOOSE_EXECUTION", // Immediate vs Timed
-	EMERGENCY_TRANSFER_DURATION: "EMERGENCY_TRANSFER_DURATION",
-	EMERGENCY_TRANSFER_AMOUNT: "EMERGENCY_TRANSFER_AMOUNT",
-	EMERGENCY_TRANSFER_NARRATION: "EMERGENCY_TRANSFER_NARRATION",
-	EMERGENCY_TRANSFER_BANK_NAME: "EMERGENCY_TRANSFER_BANK_NAME",
-	EMERGENCY_TRANSFER_BANK_CODE: "EMERGENCY_TRANSFER_BANK_CODE",
-	EMERGENCY_TRANSFER_ACCOUNT_NUMBER: "EMERGENCY_TRANSFER_ACCOUNT_NUMBER",
-	EMERGENCY_TRANSFER_ACCOUNT_NAME: "EMERGENCY_TRANSFER_ACCOUNT_NAME",
-	EMERGENCY_TRANSFER_CONFIRM_RECIPIENT: "EMERGENCY_TRANSFER_CONFIRM_RECIPIENT",
-	EMERGENCY_TRANSFER_BULK_MORE: "EMERGENCY_TRANSFER_BULK_MORE",
-	EMERGENCY_TRANSFER_VERIFY: "EMERGENCY_TRANSFER_VERIFY",
+  // Other
+  PERSONAL_ASSISTANT: "PERSONAL_ASSISTANT",
+  REFERRAL_MENU: "REFERRAL_MENU",
 
-	// Other
-	PERSONAL_ASSISTANT: "PERSONAL_ASSISTANT",
-	REFERRAL_MENU: "REFERRAL_MENU",
+  // Wallet
+  WALLET_MENU: "WALLET_MENU",
+  WALLET_VERIFY_SECURITY: "WALLET_VERIFY_SECURITY",
+  WALLET_ADD_BANK_NAME: "WALLET_ADD_BANK_NAME",
+  WALLET_ADD_ACCOUNT_NUMBER: "WALLET_ADD_ACCOUNT_NUMBER",
+  WALLET_ADD_ACCOUNT_NAME: "WALLET_ADD_ACCOUNT_NAME",
+  WALLET_MANAGE_ACCOUNTS: "WALLET_MANAGE_ACCOUNTS",
+  WALLET_DELETE_ACCOUNT_SELECT: "WALLET_DELETE_ACCOUNT_SELECT",
+  WALLET_CHANGE_SECURITY_PICK: "WALLET_CHANGE_SECURITY_PICK",
+  WALLET_CHANGE_SECURITY_ANSWER: "WALLET_CHANGE_SECURITY_ANSWER",
 
-	// Wallet
-	WALLET_MENU: "WALLET_MENU",
-	WALLET_VERIFY_SECURITY: "WALLET_VERIFY_SECURITY",
-	WALLET_ADD_BANK_NAME: "WALLET_ADD_BANK_NAME",
-	WALLET_ADD_ACCOUNT_NUMBER: "WALLET_ADD_ACCOUNT_NUMBER",
-	WALLET_ADD_ACCOUNT_NAME: "WALLET_ADD_ACCOUNT_NAME",
-	WALLET_MANAGE_ACCOUNTS: "WALLET_MANAGE_ACCOUNTS",
-	WALLET_DELETE_ACCOUNT_SELECT: "WALLET_DELETE_ACCOUNT_SELECT",
+  // Referral Withdrawal
+  REFERRAL_WITHDRAW_SELECT_BANK: "REFERRAL_WITHDRAW_SELECT_BANK",
+  REFERRAL_WITHDRAW_CONFIRM: "REFERRAL_WITHDRAW_CONFIRM",
+} as const;
 
-	// Referral Withdrawal
-	REFERRAL_WITHDRAW_SELECT_BANK: "REFERRAL_WITHDRAW_SELECT_BANK",
-	REFERRAL_WITHDRAW_CONFIRM: "REFERRAL_WITHDRAW_CONFIRM",
+export type WorkflowStateKey = (typeof WorkflowState)[keyof typeof WorkflowState];
 
-	// Change Security Question
-	WALLET_CHANGE_SECURITY_PICK: "WALLET_CHANGE_SECURITY_PICK",
-	WALLET_CHANGE_SECURITY_ANSWER: "WALLET_CHANGE_SECURITY_ANSWER",
-};
+export interface SavedBankAccount {
+  bankName: string;
+  accountNumber: string;
+  accountName: string;
+}
 
-const SECURITY_QUESTIONS = [
-	"What was the name of your first pet?",
-	"What is your mother's maiden name?",
-	"What was the name of your elementary school?",
-	"In what city were you born?",
-	"What is your favorite book?",
-];
+export interface TransferRecipient {
+  amount: number;
+  narration: string;
+  destinationAccount: {
+    bankName: string;
+    bankCode: string;
+    accountNumber: string;
+    accountName: string;
+  };
+}
+
+export interface UserDoc {
+  phoneNumber: string;
+  name: string;
+  isLiveChatActive: boolean;
+  workflowState: WorkflowStateKey;
+  workflowData: Map<string, string>;
+  coreUserId?: string;
+  assignedPaId?: string;
+  emergencyTransferLockUntil?: Date;
+  referralCode?: string;
+  rewardsEarned: number;
+  savedBankAccounts: SavedBankAccount[];
+  save(): Promise<unknown>;
+}
+
+export const SECURITY_QUESTIONS = [
+  "What was the name of your first pet?",
+  "What is your mother's maiden name?",
+  "What was the name of your elementary school?",
+  "In what city were you born?",
+  "What is your favorite book?",
+] as const;
 
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const EMERGENCY_TRANSFER_LOCK_MINUTES = 15;
 
-// ─── Reusable UI Helpers ──────────────────────────────────────────────────────
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
-/**
- * Sends the main welcome list menu.
- */
-async function sendWelcomeMenu(to, name) {
-	await sendListMessage(
-		to,
-		`Welcome back to LuxePass, ${name || "Guest"}! 👋\n\nHow can we help you today?`,
-		"Select Option",
-		[
-			{
-				title: "Main Menu",
-				rows: [
-					{
-						id: "services",
-						title: "🚀 Services",
-						description: "Bookings, Deals & More",
-					},
-					{
-						id: "wallet_menu",
-						title: "💳 Wallet",
-						description: "Balance & Deposits",
-					},
-					{
-						id: "referral_program",
-						title: "🎁 Referral Program",
-						description: "Invite & Earn",
-					},
-					{
-						id: "live_support",
-						title: "👤 Live Support",
-						description: "Chat with a human",
-					},
-				],
-			},
-		],
-		"LuxePass Menu 🏠",
-	);
+const ONBOARDING_STATES = new Set<WorkflowStateKey>([
+  WorkflowState.ONBOARDING_NAME,
+  WorkflowState.ONBOARDING_EMAIL,
+  WorkflowState.ONBOARDING_REFERRAL,
+  WorkflowState.ONBOARDING_SECURITY_QUESTION,
+  WorkflowState.ONBOARDING_SECURITY_ANSWER,
+]);
+
+const BOOKING_STATES = new Set<WorkflowStateKey>([
+  WorkflowState.BOOKING_CATEGORY,
+  WorkflowState.BOOKING_LISTING,
+  WorkflowState.BOOKING_PROPERTY_CONFIRM,
+  WorkflowState.BOOKING_CHECKIN,
+  WorkflowState.BOOKING_CHECKOUT,
+  WorkflowState.BOOKING_GUESTS,
+  WorkflowState.BOOKING_DETAILS_REQUESTS,
+]);
+
+const CONCIERGE_STATES = new Set<WorkflowStateKey>([
+  WorkflowState.CONCIERGE_CATEGORY,
+  WorkflowState.CONCIERGE_DEALS,
+  WorkflowState.CONCIERGE_DETAILS,
+  WorkflowState.CONCIERGE_BOOKING,
+]);
+
+const EMERGENCY_TRANSFER_STATES = new Set<WorkflowStateKey>([
+  WorkflowState.EMERGENCY_TRANSFER_CHOOSE_MODE,
+  WorkflowState.EMERGENCY_TRANSFER_CHOOSE_EXECUTION,
+  WorkflowState.EMERGENCY_TRANSFER_DURATION,
+  WorkflowState.EMERGENCY_TRANSFER_AMOUNT,
+  WorkflowState.EMERGENCY_TRANSFER_NARRATION,
+  WorkflowState.EMERGENCY_TRANSFER_BANK_NAME,
+  WorkflowState.EMERGENCY_TRANSFER_BANK_CODE,
+  WorkflowState.EMERGENCY_TRANSFER_ACCOUNT_NUMBER,
+  WorkflowState.EMERGENCY_TRANSFER_ACCOUNT_NAME,
+  WorkflowState.EMERGENCY_TRANSFER_CONFIRM_RECIPIENT,
+  WorkflowState.EMERGENCY_TRANSFER_BULK_MORE,
+  WorkflowState.EMERGENCY_TRANSFER_VERIFY,
+]);
+
+const WALLET_STATES = new Set<WorkflowStateKey>([
+  WorkflowState.WALLET_MENU,
+  WorkflowState.WALLET_VERIFY_SECURITY,
+  WorkflowState.WALLET_ADD_BANK_NAME,
+  WorkflowState.WALLET_ADD_ACCOUNT_NUMBER,
+  WorkflowState.WALLET_ADD_ACCOUNT_NAME,
+  WorkflowState.WALLET_MANAGE_ACCOUNTS,
+  WorkflowState.WALLET_DELETE_ACCOUNT_SELECT,
+  WorkflowState.WALLET_CHANGE_SECURITY_PICK,
+  WorkflowState.WALLET_CHANGE_SECURITY_ANSWER,
+]);
+
+// ─── UI Helpers ───────────────────────────────────────────────────────────────
+
+async function sendWelcomeMenu(to: string, name: string): Promise<void> {
+  await sendListMessage(
+    to,
+    `Welcome back to LuxePass, ${name || "Guest"}! 👋\n\nHow can we help you today?`,
+    "Select Option",
+    [
+      {
+        title: "Main Menu",
+        rows: [
+          { id: "services", title: "🚀 Services", description: "Bookings, Deals & More" },
+          { id: "wallet_menu", title: "💳 Wallet", description: "Balance & Deposits" },
+          { id: "referral_program", title: "🎁 Referral Program", description: "Invite & Earn" },
+          { id: "live_support", title: "👤 Live Support", description: "Chat with a human" },
+        ],
+      },
+    ],
+    "LuxePass Menu 🏠"
+  );
 }
 
-/**
- * Sends the wallet sub-menu list.
- */
-async function sendWalletMenu(to) {
-	await sendListMessage(
-		to,
-		"*LuxePass Wallet* 💳\n\nHow can we help you today?",
-		"Select Option",
-		[
-			{
-				title: "Wallet Options",
-				rows: [
-					{
-						id: "wallet_balance",
-						title: "💰 Balance",
-						description: "Check your current balance",
-					},
-					{
-						id: "wallet_deposit",
-						title: "📥 Deposit",
-						description: "View fund account details",
-					},
-					{
-						id: "wallet_manage_accounts",
-						title: "🏦 Manage Accounts",
-						description: "View or delete saved bank accounts",
-					},
-					{
-						id: "wallet_change_security",
-						title: "🔑 Change Security Q",
-						description: "Update your security question & answer",
-					},
-					{ id: "menu", title: "⬅️ Back", description: "Return to main menu" },
-				],
-			},
-		],
-		"Wallet Services 💰",
-	);
+async function sendWalletMenu(to: string): Promise<void> {
+  await sendListMessage(
+    to,
+    "*LuxePass Wallet* 💳\n\nHow can we help you today?",
+    "Select Option",
+    [
+      {
+        title: "Wallet Options",
+        rows: [
+          { id: "wallet_balance", title: "💰 Balance", description: "Check your current balance" },
+          { id: "wallet_deposit", title: "📥 Deposit", description: "View fund account details" },
+          {
+            id: "wallet_manage_accounts",
+            title: "🏦 Manage Accounts",
+            description: "View or delete saved bank accounts",
+          },
+          {
+            id: "wallet_change_security",
+            title: "🔑 Change Security Q",
+            description: "Update your security question & answer",
+          },
+          { id: "menu", title: "⬅️ Back", description: "Return to main menu" },
+        ],
+      },
+    ],
+    "Wallet Services 💰"
+  );
 }
 
-/**
- * Sends the services sub-menu list (Refactored to List Message).
- */
-async function sendServicesMenu(to) {
-	await sendListMessage(
-		to,
-		"*LuxePass Services* 🚀\n\nChoose a category to discover our offerings:",
-		"Select Service",
-		[
-			{
-				title: "Our Services",
-				rows: [
-					{
-						id: "service_bookings",
-						title: "🏨 Bookings",
-						description: "Apartments, Villas & More",
-					},
-					{
-						id: "service_concierge",
-						title: "🌟 Concierge",
-						description: "Luxury Lifestyle Services",
-					},
-					{
-						id: "service_emergency_transfer",
-						title: "💸 Emergency Transfer",
-						description: "Immediate or timed transfer to your bank",
-					},
-					{ id: "menu", title: "⬅️ Back", description: "Return to Main Menu" },
-				],
-			},
-		],
-	);
+async function sendServicesMenu(to: string): Promise<void> {
+  await sendListMessage(
+    to,
+    "*LuxePass Services* 🚀\n\nChoose a category to discover our offerings:",
+    "Select Service",
+    [
+      {
+        title: "Our Services",
+        rows: [
+          { id: "service_bookings", title: "🏨 Bookings", description: "Apartments, Villas & More" },
+          { id: "service_concierge", title: "🌟 Concierge", description: "Luxury Lifestyle Services" },
+          {
+            id: "service_emergency_transfer",
+            title: "💸 Emergency Transfer",
+            description: "Immediate or timed transfer to your bank",
+          },
+          { id: "menu", title: "⬅️ Back", description: "Return to Main Menu" },
+        ],
+      },
+    ]
+  );
+}
+
+// ─── Normalisation helpers ────────────────────────────────────────────────────
+
+const MENU_WORDS = new Set([
+  "menu",
+  "main menu",
+  "mainmenu",
+  "main",
+  "start",
+  "restart",
+  "back",
+  "go back",
+  "home",
+  "show menu",
+]);
+
+const SIGNUP_COMMANDS = new Set([
+  "new account",
+  "sign up",
+  "signup",
+  "register",
+  "create account",
+  "start over",
+  "reset",
+  "restart",
+]);
+
+export function normalizeMessage(raw: string): string {
+  return String(raw ?? "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function isMenuCommand(normalized: string, state: WorkflowStateKey): boolean {
+  if (MENU_WORDS.has(normalized)) return true;
+  if ((normalized === "hi" || normalized === "hello") && state === WorkflowState.MAIN_MENU) return true;
+  return false;
+}
+
+export function isSignupCommand(normalized: string): boolean {
+  return SIGNUP_COMMANDS.has(normalized);
+}
+
+export function isLiveChatRequest(text: string): boolean {
+  const lower = text.toLowerCase();
+  return (
+    lower.includes("live chat") ||
+    lower.includes("human") ||
+    lower.includes("support") ||
+    lower.includes("agent") ||
+    lower.includes("talk to someone") ||
+    lower.includes("real person")
+  );
 }
 
 // ─── Onboarding ───────────────────────────────────────────────────────────────
 
-/**
- * Handles all ONBOARDING_* states step-by-step.
- */
-async function handleOnboarding(user, message) {
-	const input = message.trim();
+async function handleOnboarding(user: UserDoc, message: string): Promise<void> {
+  const input = message.trim();
 
-	// ── Step 1: Collect name ──────────────────────────────────────────────────
-	if (user.workflowState === STATES.ONBOARDING_NAME) {
-		if (input.length < 2) {
-			await sendTextMessage(
-				user.phoneNumber,
-				"Please enter a valid name (at least 2 characters).",
-			);
-			return;
-		}
+  if (user.workflowState === WorkflowState.ONBOARDING_NAME) {
+    if (input.length < 2) {
+      await sendTextMessage(user.phoneNumber, "Please enter a valid name (at least 2 characters).");
+      return;
+    }
+    user.name = input;
+    user.workflowState = WorkflowState.ONBOARDING_EMAIL;
+    await user.save();
+    await sendTextMessage(
+      user.phoneNumber,
+      `Nice to meet you, ${input}! 👋\n\nPlease provide your email address for account registration:`
+    );
+    return;
+  }
 
-		user.name = input;
-		user.workflowState = STATES.ONBOARDING_EMAIL;
-		await user.save();
+  if (user.workflowState === WorkflowState.ONBOARDING_EMAIL) {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(input)) {
+      await sendTextMessage(user.phoneNumber, "Please enter a valid email address.");
+      return;
+    }
+    user.workflowData.set("email", input);
+    user.workflowState = WorkflowState.ONBOARDING_REFERRAL;
+    await user.save();
+    await sendTextMessage(
+      user.phoneNumber,
+      `Excellent! Do you have a referral code? 🎁\n\nIf yes, enter it now. Otherwise, type *SKIP* to continue.`
+    );
+    return;
+  }
 
-		await sendTextMessage(
-			user.phoneNumber,
-			`Nice to meet you, ${input}! 👋\n\nPlease provide your email address for account registration:`,
-		);
-		return;
-	}
+  if (user.workflowState === WorkflowState.ONBOARDING_REFERRAL) {
+    const referralInput = input.toUpperCase();
 
-	// ── Step 2: Collect email ─────────────────────────────────────────────────
-	if (user.workflowState === STATES.ONBOARDING_EMAIL) {
-		const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-		if (!emailRegex.test(input)) {
-			await sendTextMessage(
-				user.phoneNumber,
-				"Please enter a valid email address.",
-			);
-			return;
-		}
+    if (referralInput !== "SKIP") {
+      user.workflowData.set("referredBy", referralInput);
+      logger.info("Referral code captured during onboarding", { phone: user.phoneNumber, code: referralInput });
 
-		user.workflowData.set("email", input);
-		user.workflowState = STATES.ONBOARDING_REFERRAL;
-		await user.save();
+      try {
+        const referrer = (await User.findOne({ referralCode: referralInput })) as unknown as UserDoc | null;
+        if (referrer) {
+          const rewardAmount = 500;
+          referrer.rewardsEarned = (referrer.rewardsEarned || 0) + rewardAmount;
+          await referrer.save();
+          logger.info("Referrer rewarded", {
+            referrerPhone: referrer.phoneNumber,
+            referredPhone: user.phoneNumber,
+            rewardAmount,
+          });
+          await sendTextMessage(
+            referrer.phoneNumber,
+            `🎁 *Referral Reward!* 🎊\n\nYour friend with phone number starting with *${user.phoneNumber.substring(0, 6)}...* has just joined LuxePass using your code!\n\nYou've earned a reward of *₦${rewardAmount.toLocaleString()}*! 💰\n\nKeep referring to earn more! 🚀`
+          );
+        } else {
+          logger.warn("Invalid referral code provided during onboarding", {
+            phone: user.phoneNumber,
+            code: referralInput,
+          });
+        }
+      } catch (err) {
+        logger.error("Error processing referral reward", {
+          phone: user.phoneNumber,
+          code: referralInput,
+          error: (err as Error).message,
+        });
+      }
+    }
 
-		await sendTextMessage(
-			user.phoneNumber,
-			`Excellent! Do you have a referral code? 🎁\n\nIf yes, enter it now. Otherwise, type *SKIP* to continue.`,
-		);
-		return;
-	}
+    try {
+      const coreUser = await backendService.registerUser({
+        name: user.name,
+        phone: user.phoneNumber,
+        email: user.workflowData.get("email") ?? `wa_${user.phoneNumber}@luxepass.local`,
+        referralCode: user.workflowData.get("referredBy"),
+      });
+      if (coreUser?.uniqueId) {
+        user.coreUserId = coreUser.uniqueId as string;
+        logger.info("User registered on core backend", { phone: user.phoneNumber, coreUserId: coreUser.uniqueId });
+      }
+    } catch (err) {
+      logger.error("Failed to register user on core backend", {
+        phone: user.phoneNumber,
+        error: (err as Error).message,
+      });
+    }
 
-	// ── Step 3: Collect referral code & register on core backend ──────────────
-	if (user.workflowState === STATES.ONBOARDING_REFERRAL) {
-		const referralInput = input.toUpperCase();
+    user.workflowState = WorkflowState.ONBOARDING_SECURITY_QUESTION;
+    await user.save();
 
-		if (referralInput !== "SKIP") {
-			user.workflowData.set("referredBy", referralInput);
-			logger.info("Referral code captured during onboarding", {
-				phone: user.phoneNumber,
-				code: referralInput,
-			});
+    const questionList =
+      "Great! Now let's set a security question to protect your account.\n\nType the number (1-5) to select:\n" +
+      SECURITY_QUESTIONS.map((q, i) => `\n${i + 1}. ${q}`).join("");
+    await sendTextMessage(user.phoneNumber, questionList);
+    return;
+  }
 
-			try {
-				// Find the referrer and update their stats
-				const referrer = await User.findOne({ referralCode: referralInput });
-				if (referrer) {
-					// Award a sign-up bonus, e.g., 500 NGN
-					const rewardAmount = 500;
-					referrer.rewardsEarned = (referrer.rewardsEarned || 0) + rewardAmount;
-					await referrer.save();
+  if (user.workflowState === WorkflowState.ONBOARDING_SECURITY_QUESTION) {
+    const index = parseInt(input, 10) - 1;
+    if (Number.isNaN(index) || index < 0 || index >= SECURITY_QUESTIONS.length) {
+      await sendTextMessage(user.phoneNumber, "Please enter a valid number (1-5) to select a security question.");
+      return;
+    }
+    const question = SECURITY_QUESTIONS[index];
+    user.workflowData.set("securityQuestion", question);
+    user.workflowState = WorkflowState.ONBOARDING_SECURITY_ANSWER;
+    await user.save();
+    await sendTextMessage(user.phoneNumber, `Got it. Now, what is the answer to:\n\n"${question}"`);
+    return;
+  }
 
-					logger.info("Referrer rewarded", {
-						referrerPhone: referrer.phoneNumber,
-						referredPhone: user.phoneNumber,
-						rewardAmount,
-					});
+  if (user.workflowState === WorkflowState.ONBOARDING_SECURITY_ANSWER) {
+    if (input.length < 2) {
+      await sendTextMessage(user.phoneNumber, "The answer must be at least 2 characters.");
+      return;
+    }
+    const question = user.workflowData.get("securityQuestion") ?? "";
 
-					// Notify referrer
-					await sendTextMessage(
-						referrer.phoneNumber,
-						`🎁 *Referral Reward!* 🎊\n\nYour friend with phone number starting with *${user.phoneNumber.substring(0, 6)}...* has just joined LuxePass using your code!\n\nYou've earned a reward of *₦${rewardAmount.toLocaleString()}*! 💰\n\nKeep referring to earn more! 🚀`,
-					);
-				} else {
-					logger.warn("Invalid referral code provided during onboarding", {
-						phone: user.phoneNumber,
-						code: referralInput,
-					});
-				}
-			} catch (err) {
-				logger.error("Error processing referral reward", {
-					phone: user.phoneNumber,
-					code: referralInput,
-					error: err.message,
-				});
-			}
-		}
+    try {
+      const success = await backendService.setSecurityQuestion({
+        userIdentifier: user.phoneNumber,
+        question,
+        answer: input,
+      });
+      if (!success) throw new Error("setSecurityQuestion returned false");
+      logger.info("Security question set on core backend", { phone: user.phoneNumber });
+    } catch (err) {
+      logger.error("Error setting security question", { phone: user.phoneNumber, error: (err as Error).message });
+    }
 
-		// Register user on core backend and persist the returned uniqueId
-		try {
-			const coreUser = await backendService.registerUser({
-				name: user.name,
-				phone: user.phoneNumber,
-				email: user.workflowData.get("email") || `wa_${user.phoneNumber}@luxepass.local`,
-				referralCode: user.workflowData.get("referredBy") || undefined,
-			});
+    user.workflowState = WorkflowState.MAIN_MENU;
+    await user.save();
 
-			if (coreUser?.uniqueId) {
-				user.coreUserId = coreUser.uniqueId;
-				logger.info("User registered on core backend", {
-					phone: user.phoneNumber,
-					coreUserId: coreUser.uniqueId,
-				});
-			}
-		} catch (err) {
-			logger.error("Failed to register user on core backend", {
-				phone: user.phoneNumber,
-				error: err.message,
-			});
-		}
+    let walletInfo = "";
+    try {
+      const wallet = await backendService.getWallet(user.phoneNumber);
+      if (wallet?.virtualAccount) {
+        walletInfo =
+          `\n\n💳 *Your Wallet Details*\nBank: ${wallet.virtualAccount.bankName}` +
+          `\nAccount Name: ${wallet.virtualAccount.accountName}` +
+          `\nAccount Number: ${wallet.virtualAccount.accountNumber}` +
+          `\n\nFund this account to start booking instantly!`;
+      }
+    } catch (err) {
+      logger.error("Error fetching wallet after onboarding", { error: (err as Error).message });
+    }
 
-		user.workflowState = STATES.ONBOARDING_SECURITY_QUESTION;
-		await user.save(); // single clean save — no .exec()
-
-		const questionList =
-			"Great! Now let's set a security question to protect your account.\n\nType the number (1-5) to select:\n" +
-			SECURITY_QUESTIONS.map((q, i) => `\n${i + 1}. ${q}`).join("");
-
-		await sendTextMessage(user.phoneNumber, questionList);
-		return;
-	}
-
-	// ── Step 4: Pick security question ───────────────────────────────────────
-	if (user.workflowState === STATES.ONBOARDING_SECURITY_QUESTION) {
-		const index = parseInt(input, 10) - 1;
-
-		if (isNaN(index) || index < 0 || index >= SECURITY_QUESTIONS.length) {
-			await sendTextMessage(
-				user.phoneNumber,
-				"Please enter a valid number (1-5) to select a security question.",
-			);
-			return;
-		}
-
-		const question = SECURITY_QUESTIONS[index];
-		user.workflowData.set("securityQuestion", question);
-		user.workflowState = STATES.ONBOARDING_SECURITY_ANSWER;
-		await user.save();
-
-		await sendTextMessage(
-			user.phoneNumber,
-			`Got it. Now, what is the answer to:\n\n"${question}"`,
-		);
-		return;
-	}
-
-	// ── Step 5: Set security answer & complete onboarding ────────────────────
-	if (user.workflowState === STATES.ONBOARDING_SECURITY_ANSWER) {
-		if (input.length < 2) {
-			await sendTextMessage(
-				user.phoneNumber,
-				"The answer must be at least 2 characters.",
-			);
-			return;
-		}
-
-		const question = user.workflowData.get("securityQuestion");
-
-		try {
-			const success = await backendService.setSecurityQuestion({
-				userIdentifier: user.phoneNumber,
-				question,
-				answer: input,
-			});
-
-			if (!success) throw new Error("setSecurityQuestion returned false");
-
-			logger.info("Security question set on core backend", {
-				phone: user.phoneNumber,
-			});
-		} catch (err) {
-			logger.error("Error setting security question", {
-				phone: user.phoneNumber,
-				error: err.message,
-			});
-		}
-
-		user.workflowState = STATES.MAIN_MENU;
-		await user.save();
-
-		// Try to show wallet details in the welcome message
-		let walletInfo = "";
-		try {
-			const wallet = await backendService.getWallet(user.phoneNumber);
-			if (wallet?.virtualAccount) {
-				walletInfo =
-					`\n\n💳 *Your Wallet Details*\nBank: ${wallet.virtualAccount.bankName}` +
-					`\nAccount Name: ${wallet.virtualAccount.accountName}` +
-					`\nAccount Number: ${wallet.virtualAccount.accountNumber}` +
-					`\n\nFund this account to start booking instantly!`;
-			}
-		} catch (err) {
-			logger.error("Error fetching wallet after onboarding", {
-				error: err.message,
-			});
-		}
-
-		await sendTextMessage(
-			user.phoneNumber,
-			`Setup complete! Welcome to LuxePass. 🥂${walletInfo}`,
-		);
-		await sendWelcomeMenu(user.phoneNumber, user.name);
-	}
+    await sendTextMessage(user.phoneNumber, `Setup complete! Welcome to LuxePass. 🥂${walletInfo}`);
+    await sendWelcomeMenu(user.phoneNumber, user.name);
+  }
 }
 
 // ─── Main Workflow Entry Point ─────────────────────────────────────────────────
 
-/**
- * Primary entry point for all incoming WhatsApp messages.
- * Called by webhookController for text and interactive message types.
- *
- * @param {string} from     - Raw WhatsApp sender ID (digits only expected)
- * @param {string} message  - Extracted message content / button ID
- * @param {string} name     - Display name from WhatsApp contact profile
- */
-export async function handleWorkflow(from, message, name) {
-	const phoneNumber = from.replace(/\D/g, "");
+export async function handleWorkflow(from: string, message: string, name: string): Promise<void> {
+  const phoneNumber = from.replace(/\D/g, "");
 
-	try {
-		let user = await User.findOne({ phoneNumber });
+  try {
+    let user = (await User.findOne({ phoneNumber })) as unknown as UserDoc | null;
 
-		// ── New user ─────────────────────────────────────────────────────────────
-		if (!user) {
-			// Check if already registered in the core backend.
-			// API response shape: { exists: boolean, uniqueId: string | null }
-			const coreCheck = await backendService.checkUserExists(phoneNumber);
+    if (!user) {
+      const coreCheck = await backendService.checkUserExists(phoneNumber);
 
-			if (coreCheck?.exists === true) {
-				// User exists in the core backend — create a local record and skip onboarding entirely.
-				// We only have phone + WA display name at this point, but that's enough to get them started.
-				user = await User.create({
-					phoneNumber,
-					name: name || "",
-					// Store uniqueId only when the backend actually provides it
-					...(coreCheck.uniqueId && { coreUserId: coreCheck.uniqueId }),
-					workflowState: STATES.MAIN_MENU,
-				});
+      if (coreCheck?.exists === true) {
+        user = (await User.create({
+          phoneNumber,
+          name: name || "",
+          ...(coreCheck.uniqueId && { coreUserId: coreCheck.uniqueId }),
+          workflowState: WorkflowState.MAIN_MENU,
+        })) as unknown as UserDoc;
+        logger.info("Existing core-backend user synced — skipping onboarding", {
+          phoneNumber,
+          coreUserId: coreCheck.uniqueId ?? "not provided",
+        });
+        await sendWelcomeMenu(phoneNumber, user.name);
+        return;
+      }
 
-				logger.info(
-					"Existing core-backend user synced to local DB — skipping onboarding",
-					{
-						phoneNumber,
-						coreUserId: coreCheck.uniqueId ?? "not provided",
-					},
-				);
+      let seededCoreUserId: string | null = null;
+      try {
+        const fallbackName = name?.trim() || `WA ${phoneNumber.slice(-4)}`;
+        const seededCoreUser = await backendService.registerUser({
+          name: fallbackName,
+          phone: phoneNumber,
+          email: `wa_${phoneNumber}@luxepass.local`,
+        });
+        if (seededCoreUser?.uniqueId) {
+          seededCoreUserId = seededCoreUser.uniqueId as string;
+          logger.info("First-contact user seeded in core backend", { phoneNumber, coreUserId: seededCoreUserId });
+        }
+      } catch (seedErr) {
+        logger.warn("Failed to seed first-contact user in core backend", {
+          phoneNumber,
+          error: (seedErr as Error)?.message ?? String(seedErr),
+        });
+      }
 
-				await sendWelcomeMenu(phoneNumber, user.name);
-				return;
-			}
+      if (isLiveChatRequest(message)) {
+        user = (await User.create({
+          phoneNumber,
+          name: name || "",
+          ...(seededCoreUserId && { coreUserId: seededCoreUserId }),
+          workflowState: WorkflowState.PERSONAL_ASSISTANT,
+          isLiveChatActive: true,
+        })) as unknown as UserDoc;
+        await autoAssignPA(user);
+        await sendTextMessage(
+          phoneNumber,
+          `*Personal Assistant* 👤\n\nConnecting you with a Live Agent...\nPlease wait, one of our specialists will be with you shortly.`
+        );
+        logger.info("New user requested live chat immediately", { phoneNumber });
+        return;
+      }
 
-			// User does not exist in core backend — start full onboarding
-			// Create a minimal core record immediately so first-contact users are visible in core DB (Neon).
-			// Onboarding later enriches this profile (email/security/referral) and re-register path is idempotent.
-			let seededCoreUserId = null;
-			try {
-				const fallbackName = (name && name.trim().length > 0 ? name.trim() : `WA ${phoneNumber.slice(-4)}`);
-				const fallbackEmail = `wa_${phoneNumber}@luxepass.local`;
-				const seededCoreUser = await backendService.registerUser({
-					name: fallbackName,
-					phone: phoneNumber,
-					email: fallbackEmail,
-				});
+      const initialState = name ? WorkflowState.ONBOARDING_EMAIL : WorkflowState.ONBOARDING_NAME;
+      user = (await User.create({
+        phoneNumber,
+        name: name || "",
+        ...(seededCoreUserId && { coreUserId: seededCoreUserId }),
+        workflowState: initialState,
+      })) as unknown as UserDoc;
 
-				if (seededCoreUser?.uniqueId) {
-					seededCoreUserId = seededCoreUser.uniqueId;
-					logger.info("First-contact WhatsApp user seeded in core backend", {
-						phoneNumber,
-						coreUserId: seededCoreUserId,
-					});
-				}
-			} catch (seedErr) {
-				logger.warn("Failed to seed first-contact WhatsApp user in core backend", {
-					phoneNumber,
-					error: seedErr?.message || String(seedErr),
-				});
-			}
+      if (name) {
+        await sendTextMessage(
+          phoneNumber,
+          `Welcome to LuxePass, ${name}! 👋\n\nTo get started, please provide your email address for confirmations:`
+        );
+      } else {
+        await sendTextMessage(phoneNumber, "Welcome to LuxePass! 👋\n\nBefore we begin, may I ask for your name?");
+      }
+      return;
+    }
 
-			// Immediate live-chat request from a first-time user
-			const isLiveChatRequest =
-				message.toLowerCase().includes("live chat") ||
-				message.toLowerCase().includes("human") ||
-				message.toLowerCase().includes("support") ||
-				message.toLowerCase().includes("agent");
+    const normalized = normalizeMessage(message);
 
-			if (isLiveChatRequest) {
-				user = await User.create({
-					phoneNumber,
-					name: name || "",
-					...(seededCoreUserId && { coreUserId: seededCoreUserId }),
-					workflowState: STATES.PERSONAL_ASSISTANT,
-					isLiveChatActive: true,
-				});
-				await autoAssignPA(user);
-				await sendTextMessage(
-					phoneNumber,
-					`*Personal Assistant* 👤\n\nConnecting you with a Live Agent...\nPlease wait, one of our specialists will be with you shortly.`,
-				);
-				logger.info("New user requested live chat immediately", { phoneNumber });
-				return;
-			}
+    if (user.isLiveChatActive && normalized) {
+      logger.info("Message from user in live chat", { phoneNumber, normalized, rawLength: message.length });
+    }
 
-			// Default: start onboarding
-			// If WhatsApp already gave us the name, skip the name step
-			const initialState = name ? STATES.ONBOARDING_EMAIL : STATES.ONBOARDING_NAME;
-			user = await User.create({
-				phoneNumber,
-				name: name || "",
-				...(seededCoreUserId && { coreUserId: seededCoreUserId }),
-				workflowState: initialState,
-			});
+    if (isSignupCommand(normalized)) {
+      user.workflowData = new Map();
+      user.isLiveChatActive = false;
+      user.assignedPaId = undefined;
+      user.workflowState = user.name ? WorkflowState.ONBOARDING_EMAIL : WorkflowState.ONBOARDING_NAME;
+      await user.save();
+      await sendTextMessage(phoneNumber, "Sure! Let's start your LuxePass sign-up again.");
+      if (user.workflowState === WorkflowState.ONBOARDING_NAME) {
+        await sendTextMessage(phoneNumber, "Welcome to LuxePass! 👋\n\nPlease enter your name to begin:");
+      } else {
+        await sendTextMessage(phoneNumber, "Great! Please provide your email address for account registration:");
+      }
+      return;
+    }
 
-			if (name) {
-				await sendTextMessage(
-					phoneNumber,
-					`Welcome to LuxePass, ${name}! 👋\n\nTo get started, please provide your email address for confirmations:`,
-				);
-			} else {
-				await sendTextMessage(
-					phoneNumber,
-					"Welcome to LuxePass! 👋\n\nBefore we begin, may I ask for your name?",
-				);
-			}
-			return;
-		}
+    const hasActiveEmergencyLock =
+      user.emergencyTransferLockUntil != null && new Date(user.emergencyTransferLockUntil) > new Date();
 
-		// ── Global reset commands first: so "menu" / "main menu" / "start" work even when in live chat ──
-		const normalizedMsg = String(message ?? "")
-			.toLowerCase()
-			.replace(/\s+/g, " ")
-			.trim();
-		if (user.isLiveChatActive && normalizedMsg) {
-			logger.info("Message from user in live chat", {
-				phoneNumber,
-				normalizedMsg,
-				rawLength: String(message ?? "").length,
-			});
-		}
+    if (hasActiveEmergencyLock && !isMenuCommand(normalized, user.workflowState)) {
+      const lockUntil = new Date(user.emergencyTransferLockUntil!).toLocaleTimeString();
+      await sendTextMessage(
+        phoneNumber,
+        `🔒 Emergency mode is locked for your protection. New transactions are blocked until ${lockUntil}.\n\nType *Menu* for non-transaction support.`
+      );
+      return;
+    }
 
-		const isSignupCommand =
-			normalizedMsg === "new account" ||
-			normalizedMsg === "sign up" ||
-			normalizedMsg === "signup" ||
-			normalizedMsg === "register" ||
-			normalizedMsg === "create account" ||
-			normalizedMsg === "start over" ||
-			normalizedMsg === "reset" ||
-			normalizedMsg === "restart";
+    if (user.emergencyTransferLockUntil && new Date(user.emergencyTransferLockUntil) <= new Date()) {
+      user.emergencyTransferLockUntil = undefined;
+      await user.save();
+    }
 
-		if (isSignupCommand) {
-			user.workflowData = new Map();
-			user.isLiveChatActive = false;
-			user.assignedPaId = undefined;
-			user.workflowState = user.name
-				? STATES.ONBOARDING_EMAIL
-				: STATES.ONBOARDING_NAME;
-			await user.save();
+    if (isMenuCommand(normalized, user.workflowState)) {
+      const wasLiveChat = user.isLiveChatActive;
+      user.workflowState = WorkflowState.MAIN_MENU;
+      user.workflowData = new Map();
+      user.isLiveChatActive = false;
+      user.assignedPaId = undefined;
+      await user.save();
+      if (wasLiveChat) {
+        await Conversation.updateOne({ conversationId: phoneNumber }, { $unset: { assignedPaId: "" } });
+        logger.info("User exited live chat via menu command", { phoneNumber, message: normalized });
+      }
+      await sendWelcomeMenu(phoneNumber, user.name);
+      return;
+    }
 
-			await sendTextMessage(
-				phoneNumber,
-				"Sure! Let's start your LuxePass sign-up again.",
-			);
+    if (user.isLiveChatActive) return;
 
-			if (user.workflowState === STATES.ONBOARDING_NAME) {
-				await sendTextMessage(
-					phoneNumber,
-					"Welcome to LuxePass! 👋\n\nPlease enter your name to begin:",
-				);
-			} else {
-				await sendTextMessage(
-					phoneNumber,
-					"Great! Please provide your email address for account registration:",
-				);
-			}
-			return;
-		}
+    if (isLiveChatRequest(message)) {
+      const previousState = user.workflowState;
+      user.isLiveChatActive = true;
+      user.workflowState = WorkflowState.PERSONAL_ASSISTANT;
+      await user.save();
+      await autoAssignPA(user);
+      await sendTextMessage(
+        user.phoneNumber,
+        `*Personal Assistant* 👤\n\nConnecting you with a Live Agent...\nPlease wait, one of our specialists will be with you shortly. You can continue using the bot anytime by typing *Menu*.`
+      );
+      logger.info("User requested live chat during conversation", { phoneNumber: user.phoneNumber, previousState });
+      return;
+    }
 
-		const isMenuCommand =
-			normalizedMsg === "menu" ||
-			normalizedMsg === "main menu" ||
-			normalizedMsg === "mainmenu" ||
-			normalizedMsg === "main" ||
-			normalizedMsg === "start" ||
-			normalizedMsg === "restart" ||
-			normalizedMsg === "back" ||
-			normalizedMsg === "go back" ||
-			normalizedMsg === "home" ||
-			normalizedMsg === "show menu" ||
-			((normalizedMsg === "hi" || normalizedMsg === "hello") &&
-				user.workflowState === STATES.MAIN_MENU);
+    if (normalized === "withdraw") {
+      await handleWithdrawInitiation(user);
+      return;
+    }
 
-		const hasActiveEmergencyLock =
-			user.emergencyTransferLockUntil &&
-			new Date(user.emergencyTransferLockUntil) > new Date();
-
-		if (hasActiveEmergencyLock && !isMenuCommand) {
-			const lockUntil = new Date(user.emergencyTransferLockUntil).toLocaleTimeString();
-			await sendTextMessage(
-				phoneNumber,
-				`🔒 Emergency mode is locked for your protection. New transactions are blocked until ${lockUntil}.\n\nType *Menu* for non-transaction support.`,
-			);
-			return;
-		}
-
-		if (
-			user.emergencyTransferLockUntil &&
-			new Date(user.emergencyTransferLockUntil) <= new Date()
-		) {
-			user.emergencyTransferLockUntil = undefined;
-			await user.save();
-		}
-
-		if (isMenuCommand) {
-			const wasLiveChat = user.isLiveChatActive;
-			user.workflowState = STATES.MAIN_MENU;
-			user.workflowData = new Map();
-			user.isLiveChatActive = false;
-			user.assignedPaId = undefined;
-			await user.save();
-			if (wasLiveChat) {
-				await Conversation.updateOne(
-					{ conversationId: phoneNumber },
-					{ $unset: { assignedPaId: "" } },
-				);
-				logger.info("User exited live chat via menu command", {
-					phoneNumber,
-					message: normalizedMsg,
-				});
-			}
-			await sendWelcomeMenu(phoneNumber, user.name);
-			return;
-		}
-
-		// ── Existing user: live chat active — hands off to human agent ────────────
-		if (user.isLiveChatActive) return;
-
-		// ── Live chat request at any point in conversation (works alongside bot) ───
-		const loweredForLiveChat = message.toLowerCase().trim();
-		const isLiveChatRequest =
-			loweredForLiveChat.includes("live chat") ||
-			loweredForLiveChat.includes("human") ||
-			loweredForLiveChat.includes("support") ||
-			loweredForLiveChat.includes("agent") ||
-			loweredForLiveChat.includes("talk to someone") ||
-			loweredForLiveChat.includes("real person");
-		if (isLiveChatRequest) {
-			const previousState = user.workflowState;
-			user.isLiveChatActive = true;
-			user.workflowState = STATES.PERSONAL_ASSISTANT;
-			await user.save();
-			await autoAssignPA(user);
-			await sendTextMessage(
-				user.phoneNumber,
-				`*Personal Assistant* 👤\n\nConnecting you with a Live Agent...\nPlease wait, one of our specialists will be with you shortly. You can continue using the bot anytime by typing *Menu*.`,
-			);
-			logger.info("User requested live chat during conversation", {
-				phoneNumber: user.phoneNumber,
-				previousState,
-			});
-			return;
-		}
-
-		if (normalizedMsg === "withdraw") {
-			await handleWithdrawInitiation(user);
-			return;
-		}
-
-		// ── Route to correct handler ──────────────────────────────────────────────
-		await routeWorkflowState(user, message);
-	} catch (err) {
-		logger.error("Unhandled error in handleWorkflow", {
-			phoneNumber,
-			message,
-			error: err.message,
-			stack: err.stack,
-		});
-		await sendTextMessage(
-			phoneNumber,
-			"Sorry, something went wrong. Please type *Menu* to restart.",
-		);
-	}
+    await routeWorkflowState(user, message);
+  } catch (err) {
+    logger.error("Unhandled error in handleWorkflow", {
+      phoneNumber,
+      message,
+      error: (err as Error).message,
+      stack: (err as Error).stack,
+    });
+    await sendTextMessage(phoneNumber, "Sorry, something went wrong. Please type *Menu* to restart.");
+  }
 }
 
 // ─── State Router ─────────────────────────────────────────────────────────────
 
-/**
- * Routes to the correct handler based on the user's current workflow state.
- */
-async function routeWorkflowState(user, message) {
-	const state = user.workflowState;
+export async function routeWorkflowState(user: UserDoc, message: string): Promise<void> {
+  const { workflowState: state } = user;
 
-	const onboardingStates = new Set([
-		STATES.ONBOARDING_NAME,
-		STATES.ONBOARDING_EMAIL,
-		STATES.ONBOARDING_REFERRAL,
-		STATES.ONBOARDING_SECURITY_QUESTION,
-		STATES.ONBOARDING_SECURITY_ANSWER,
-	]);
+  if (ONBOARDING_STATES.has(state)) return handleOnboarding(user, message);
+  if (state === WorkflowState.MAIN_MENU) return handleMainMenu(user, message);
+  if (state === WorkflowState.SERVICE_MENU) return handleServiceMenu(user, message);
+  if (BOOKING_STATES.has(state)) return handleBookingFlow(user, message);
+  if (state === WorkflowState.BOOKING_PAYMENT) return handleBookingPaymentVerify(user, message);
+  if (CONCIERGE_STATES.has(state)) return handleConciergeFlow(user, message);
+  if (EMERGENCY_TRANSFER_STATES.has(state)) return handleEmergencyTransferFlow(user, message);
+  if (state === WorkflowState.REFERRAL_MENU) return handleReferralFlow(user, message);
+  if (state === WorkflowState.REFERRAL_WITHDRAW_SELECT_BANK || state === WorkflowState.REFERRAL_WITHDRAW_CONFIRM)
+    return handleReferralWithdrawFlow(user, message);
+  if (WALLET_STATES.has(state)) return handleWalletFlow(user, message);
 
-	const bookingStates = new Set([
-		STATES.BOOKING_CATEGORY,
-		STATES.BOOKING_LISTING,
-		STATES.BOOKING_PROPERTY_CONFIRM,
-		STATES.BOOKING_CHECKIN,
-		STATES.BOOKING_CHECKOUT,
-		STATES.BOOKING_GUESTS,
-		STATES.BOOKING_DETAILS_REQUESTS,
-	]);
-
-	const conciergeStates = new Set([
-		STATES.CONCIERGE_CATEGORY,
-		STATES.CONCIERGE_DEALS,
-		STATES.CONCIERGE_DETAILS,
-		STATES.CONCIERGE_BOOKING,
-	]);
-
-	const emergencyTransferStates = new Set([
-		STATES.EMERGENCY_TRANSFER_CHOOSE_MODE,
-		STATES.EMERGENCY_TRANSFER_CHOOSE_EXECUTION,
-		STATES.EMERGENCY_TRANSFER_DURATION,
-		STATES.EMERGENCY_TRANSFER_AMOUNT,
-		STATES.EMERGENCY_TRANSFER_NARRATION,
-		STATES.EMERGENCY_TRANSFER_BANK_NAME,
-		STATES.EMERGENCY_TRANSFER_BANK_CODE,
-		STATES.EMERGENCY_TRANSFER_ACCOUNT_NUMBER,
-		STATES.EMERGENCY_TRANSFER_ACCOUNT_NAME,
-		STATES.EMERGENCY_TRANSFER_CONFIRM_RECIPIENT,
-		STATES.EMERGENCY_TRANSFER_BULK_MORE,
-		STATES.EMERGENCY_TRANSFER_VERIFY,
-	]);
-
-	const walletStates = new Set([
-		STATES.WALLET_MENU,
-		STATES.WALLET_VERIFY_SECURITY,
-		STATES.WALLET_ADD_BANK_NAME,
-		STATES.WALLET_ADD_ACCOUNT_NUMBER,
-		STATES.WALLET_ADD_ACCOUNT_NAME,
-		STATES.WALLET_MANAGE_ACCOUNTS,
-		STATES.WALLET_DELETE_ACCOUNT_SELECT,
-		STATES.WALLET_CHANGE_SECURITY_PICK,
-		STATES.WALLET_CHANGE_SECURITY_ANSWER,
-	]);
-
-	if (onboardingStates.has(state)) return handleOnboarding(user, message);
-	if (state === STATES.MAIN_MENU) return handleMainMenu(user, message);
-	if (state === STATES.SERVICE_MENU) return handleServiceMenu(user, message);
-	if (bookingStates.has(state)) return handleBookingFlow(user, message);
-	if (state === STATES.BOOKING_PAYMENT)
-		return handleBookingPaymentVerify(user, message);
-	if (conciergeStates.has(state)) return handleConciergeFlow(user, message);
-	if (emergencyTransferStates.has(state))
-		return handleEmergencyTransferFlow(user, message);
-	if (state === STATES.REFERRAL_MENU) return handleReferralFlow(user, message);
-	if (
-		state === STATES.REFERRAL_WITHDRAW_SELECT_BANK ||
-		state === STATES.REFERRAL_WITHDRAW_CONFIRM
-	)
-		return handleReferralWithdrawFlow(user, message);
-	if (walletStates.has(state)) return handleWalletFlow(user, message);
-
-	// Unknown state — reset gracefully
-	logger.warn("Unknown workflow state, resetting to MAIN_MENU", {
-		state,
-		phone: user.phoneNumber,
-	});
-	user.workflowState = STATES.MAIN_MENU;
-	await user.save();
-	await sendWelcomeMenu(user.phoneNumber, user.name);
+  logger.warn("Unknown workflow state, resetting to MAIN_MENU", { state, phone: user.phoneNumber });
+  user.workflowState = WorkflowState.MAIN_MENU;
+  await user.save();
+  await sendWelcomeMenu(user.phoneNumber, user.name);
 }
 
 // ─── Main Menu ────────────────────────────────────────────────────────────────
 
-async function handleMainMenu(user, message) {
-	const choice = message.trim().toLowerCase();
+async function handleMainMenu(user: UserDoc, message: string): Promise<void> {
+  const choice = message.trim().toLowerCase();
 
-	switch (choice) {
-		case "services":
-			user.workflowState = STATES.SERVICE_MENU;
-			await user.save();
-			await sendServicesMenu(user.phoneNumber);
-			break;
+  switch (choice) {
+    case "services":
+      user.workflowState = WorkflowState.SERVICE_MENU;
+      await user.save();
+      await sendServicesMenu(user.phoneNumber);
+      break;
 
-		case "wallet_menu":
-		case "3":
-			user.workflowState = STATES.WALLET_MENU;
-			await user.save();
-			await sendWalletMenu(user.phoneNumber);
-			break;
+    case "wallet_menu":
+    case "3":
+      user.workflowState = WorkflowState.WALLET_MENU;
+      await user.save();
+      await sendWalletMenu(user.phoneNumber);
+      break;
 
-		case "referral_program":
-			user.workflowState = STATES.REFERRAL_MENU;
-			await user.save();
-			await handleReferralFlow(user, "start");
-			break;
+    case "referral_program":
+      user.workflowState = WorkflowState.REFERRAL_MENU;
+      await user.save();
+      await handleReferralFlow(user, "start");
+      break;
 
-		case "live_support":
-		case "4":
-			user.isLiveChatActive = true;
-			user.workflowState = STATES.PERSONAL_ASSISTANT;
-			await user.save();
-			await autoAssignPA(user);
-			await sendTextMessage(
-				user.phoneNumber,
-				`*Personal Assistant* 👤\n\nConnecting you with a Live Agent...\nPlease wait, one of our specialists will be with you shortly.`,
-			);
-			break;
+    case "live_support":
+    case "4":
+      user.isLiveChatActive = true;
+      user.workflowState = WorkflowState.PERSONAL_ASSISTANT;
+      await user.save();
+      await autoAssignPA(user);
+      await sendTextMessage(
+        user.phoneNumber,
+        `*Personal Assistant* 👤\n\nConnecting you with a Live Agent...\nPlease wait, one of our specialists will be with you shortly.`
+      );
+      break;
 
-		case "menu":
-		case "main menu":
-			await sendWelcomeMenu(user.phoneNumber, user.name);
-			break;
+    case "menu":
+    case "main menu":
+      await sendWelcomeMenu(user.phoneNumber, user.name);
+      break;
 
-		default:
-			await sendTextMessage(
-				user.phoneNumber,
-				"Please select a valid option from the menu list.",
-			);
-			await sendWelcomeMenu(user.phoneNumber, user.name);
-	}
+    default:
+      await sendTextMessage(user.phoneNumber, "Please select a valid option from the menu list.");
+      await sendWelcomeMenu(user.phoneNumber, user.name);
+  }
 }
 
-// ─── Service Menu Handler ───────────────────────────────────────────────────
+// ─── Service Menu ─────────────────────────────────────────────────────────────
 
-async function handleServiceMenu(user, message) {
-	const choice = message.trim().toLowerCase();
+async function handleServiceMenu(user: UserDoc, message: string): Promise<void> {
+  const choice = message.trim().toLowerCase();
 
-	if (choice === "menu" || choice === "back") {
-		user.workflowState = STATES.MAIN_MENU;
-		await user.save();
-		await sendWelcomeMenu(user.phoneNumber, user.name);
-		return;
-	}
+  if (choice === "menu" || choice === "back") {
+    user.workflowState = WorkflowState.MAIN_MENU;
+    await user.save();
+    await sendWelcomeMenu(user.phoneNumber, user.name);
+    return;
+  }
 
-	switch (choice) {
-		case "service_bookings":
-			user.workflowData = new Map();
-			user.workflowState = STATES.BOOKING_CATEGORY;
-			await user.save();
+  switch (choice) {
+    case "service_bookings": {
+      user.workflowData = new Map();
+      user.workflowState = WorkflowState.BOOKING_CATEGORY;
+      await user.save();
 
-			try {
-				const categories = await backendService.getPropertyTypes();
+      try {
+        const categories = (await backendService.getPropertyTypes()) as string[];
+        if (!categories?.length) {
+          await sendTextMessage(
+            user.phoneNumber,
+            "No property categories are available at the moment. Please check back later."
+          );
+          user.workflowState = WorkflowState.MAIN_MENU;
+          await user.save();
+          await sendWelcomeMenu(user.phoneNumber, user.name);
+          return;
+        }
 
-				if (!categories || categories.length === 0) {
-					await sendTextMessage(
-						user.phoneNumber,
-						"No property categories are available at the moment. Please check back later.",
-					);
-					user.workflowState = STATES.MAIN_MENU;
-					await user.save();
-					await sendWelcomeMenu(user.phoneNumber, user.name);
-					return;
-				}
+        await sendListMessage(
+          user.phoneNumber,
+          "Select a property category to begin your booking:",
+          "Select Category",
+          [
+            {
+              title: "Property Categories",
+              rows: categories.map((cat) => ({
+                id: cat,
+                title: cat.charAt(0) + cat.slice(1).toLowerCase(),
+                description: `View available ${cat.toLowerCase()}s`,
+              })),
+            },
+          ],
+          "Booking Services 🏨"
+        );
+      } catch {
+        await sendTextMessage(user.phoneNumber, "Error fetching categories. Please try again later.");
+      }
+      break;
+    }
 
-				const categoryRows = categories.map((cat) => ({
-					id: cat,
-					title: cat.charAt(0) + cat.slice(1).toLowerCase(),
-					description: `View available ${cat.toLowerCase()}s`,
-				}));
+    case "service_concierge": {
+      user.workflowData = new Map();
+      user.workflowState = WorkflowState.CONCIERGE_CATEGORY;
+      await user.save();
 
-				await sendListMessage(
-					user.phoneNumber,
-					"Select a property category to begin your booking:",
-					"Select Category",
-					[{ title: "Property Categories", rows: categoryRows }],
-					"Booking Services 🏨",
-				);
-			} catch (err) {
-				await sendTextMessage(
-					user.phoneNumber,
-					"Error fetching categories. Please try again later.",
-				);
-			}
-			break;
+      try {
+        const categories = (await backendService.getConciergeCategories()) as string[];
+        if (!categories?.length) {
+          await sendTextMessage(
+            user.phoneNumber,
+            "No concierge categories are available right now. Please try again later."
+          );
+          user.workflowState = WorkflowState.MAIN_MENU;
+          await user.save();
+          await sendWelcomeMenu(user.phoneNumber, user.name);
+          return;
+        }
 
-		case "service_concierge":
-			user.workflowData = new Map();
-			user.workflowState = STATES.CONCIERGE_CATEGORY;
-			await user.save();
+        await sendListMessage(
+          user.phoneNumber,
+          "🌟 *Luxury Concierge Services*\n\nPlease select a service category:",
+          "Select Category",
+          [
+            {
+              title: "Service Categories",
+              rows: categories.map((cat) => ({
+                id: `concierge_cat_${cat}`,
+                title: cat,
+                description: `Luxury ${cat.toLowerCase()} services`,
+              })),
+            },
+          ],
+          "Concierge Services 🛎️"
+        );
+      } catch {
+        await sendTextMessage(user.phoneNumber, "Error fetching concierge categories. Please try again.");
+      }
+      break;
+    }
 
-			try {
-				const categories = await backendService.getConciergeCategories();
+    case "service_emergency_transfer":
+      user.workflowData = new Map();
+      user.workflowState = WorkflowState.EMERGENCY_TRANSFER_CHOOSE_MODE;
+      await user.save();
+      await sendInteractiveMessage(
+        user.phoneNumber,
+        "*Emergency Transfer* 💸\n\nWould you like to perform a single transfer or transfers to multiple accounts?",
+        [
+          { id: "single", title: "Single Transfer" },
+          { id: "bulk", title: "Multiple Accounts" },
+        ],
+        "Select Option"
+      );
+      break;
 
-				if (!categories || categories.length === 0) {
-					await sendTextMessage(
-						user.phoneNumber,
-						"No concierge categories are available right now. Please try again later.",
-					);
-					user.workflowState = STATES.MAIN_MENU;
-					await user.save();
-					await sendWelcomeMenu(user.phoneNumber, user.name);
-					return;
-				}
-
-				const categoryRows = categories.map((cat) => ({
-					id: `concierge_cat_${cat}`,
-					title: cat,
-					description: `Luxury ${cat.toLowerCase()} services`,
-				}));
-
-				await sendListMessage(
-					user.phoneNumber,
-					"🌟 *Luxury Concierge Services*\n\nPlease select a service category:",
-					"Select Category",
-					[{ title: "Service Categories", rows: categoryRows }],
-					"Concierge Services 🛎️",
-				);
-			} catch (err) {
-				await sendTextMessage(
-					user.phoneNumber,
-					"Error fetching concierge categories. Please try again.",
-				);
-			}
-			break;
-
-		case "service_emergency_transfer":
-			user.workflowData = new Map();
-			user.workflowState = STATES.EMERGENCY_TRANSFER_CHOOSE_MODE;
-			await user.save();
-			await sendInteractiveMessage(
-				user.phoneNumber,
-				"*Emergency Transfer* 💸\n\nWould you like to perform a single transfer or transfers to multiple accounts?",
-				[
-					{ id: "single", title: "Single Transfer" },
-					{ id: "bulk", title: "Multiple Accounts" },
-				],
-				"Select Option",
-			);
-			break;
-
-		default:
-			await sendServicesMenu(user.phoneNumber);
-	}
+    default:
+      await sendServicesMenu(user.phoneNumber);
+  }
 }
 
 // ─── Booking Flow ─────────────────────────────────────────────────────────────
 
-async function handleBookingFlow(user, message) {
-	const choice = message.trim();
-	const { phoneNumber } = user;
+async function handleBookingFlow(user: UserDoc, message: string): Promise<void> {
+  const choice = message.trim();
+  const { phoneNumber } = user;
 
-	// Select property type
-	if (user.workflowState === STATES.BOOKING_CATEGORY) {
-		const propertyType = choice.toUpperCase();
-		user.workflowData.set("propertyType", propertyType);
+  if (user.workflowState === WorkflowState.BOOKING_CATEGORY) {
+    const propertyType = choice.toUpperCase();
+    user.workflowData.set("propertyType", propertyType);
 
-		const listings = await backendService.getListings({
-			propertyType,
-			limit: 10,
-		});
+    const listings = await backendService.getListings({ propertyType, limit: 10 });
 
-		if (!listings || listings.length === 0) {
-			user.workflowState = STATES.PERSONAL_ASSISTANT;
-			user.isLiveChatActive = true;
-			user.workflowData = new Map();
-			await user.save();
-			await autoAssignPA(user);
-			await sendTextMessage(
-				phoneNumber,
-				`Sorry, no ${propertyType}s are available right now. We're connecting you with our customer service so they can help you find something or take your request. Please wait, an agent will be with you shortly.`,
-			);
-			return;
-		}
+    if (!listings?.length) {
+      user.workflowState = WorkflowState.PERSONAL_ASSISTANT;
+      user.isLiveChatActive = true;
+      user.workflowData = new Map();
+      await user.save();
+      await autoAssignPA(user);
+      await sendTextMessage(
+        phoneNumber,
+        `Sorry, no ${propertyType}s are available right now. We're connecting you with our customer service. Please wait, an agent will be with you shortly.`
+      );
+      return;
+    }
 
-		user.workflowState = STATES.BOOKING_LISTING;
-		await user.save();
+    user.workflowState = WorkflowState.BOOKING_LISTING;
+    user.workflowData.set("viewedListingIds", "[]");
+    await user.save();
 
-		const listingRows = listings.map((l) => {
-			const symbol = l.currency === "USD" ? "$" : "₦";
-			const priceStr = `${symbol}${Number(l.pricePerNight || 0).toLocaleString()}/night`;
-			const desc = (l.description || "").substring(0, 50);
-			const part = l.city ? ` — ${l.city}` : "";
-			const description =
-				desc ?
-					`${priceStr} · ${desc}${part}`.substring(0, 72)
-				:	`${priceStr}${part}`.substring(0, 72);
-			return {
-				id: l.id,
-				title: (l.name || "Listing").substring(0, 24),
-				description,
-			};
-		});
+    await sendListMessage(
+      phoneNumber,
+      `We found ${listings.length} ${propertyType.toLowerCase()}(s) for you. Select one to view its photos and details.`,
+      "Select Property",
+      [
+        {
+          title: "Available Listings",
+          rows: (listings as Record<string, unknown>[]).map((l) => {
+            const symbol = l.currency === "USD" ? "$" : "₦";
+            const priceStr = `${symbol}${Number(l.pricePerNight ?? 0).toLocaleString()}/night`;
+            const desc = String(l.description ?? "").substring(0, 50);
+            const part = l.city ? ` — ${l.city}` : "";
+            const description = desc
+              ? `${priceStr} · ${desc}${part}`.substring(0, 72)
+              : `${priceStr}${part}`.substring(0, 72);
+            return { id: String(l.id), title: String(l.name ?? "Listing").substring(0, 24), description };
+          }),
+        },
+      ],
+      `Available ${propertyType}s 🏨`
+    );
+    await sendTextMessage(
+      phoneNumber,
+      "Reply with a property from the list above to see its photos and details. Then we'll ask if you're satisfied or want to view another."
+    );
+    return;
+  }
 
-		// Store listing ids so we can exclude viewed ones when they ask for "another"
-		user.workflowData.set("viewedListingIds", "[]");
-		await sendListMessage(
-			phoneNumber,
-			`We found ${listings.length} ${propertyType.toLowerCase()}(s) for you. Select one to view its photos and details.`,
-			"Select Property",
-			[{ title: "Available Listings", rows: listingRows }],
-			`Available ${propertyType}s 🏨`,
-		);
-		await sendTextMessage(
-			phoneNumber,
-			"Reply with a property from the list above to see its photos and details. Then we'll ask if you're satisfied or want to view another.",
-		);
-		return;
-	}
+  if (user.workflowState === WorkflowState.BOOKING_LISTING) {
+    const listing = await backendService.getListingById(choice);
+    const propertyType = user.workflowData.get("propertyType");
 
-	// Select listing: send that property's media and ask satisfied / view another
-	if (user.workflowState === STATES.BOOKING_LISTING) {
-		const listing = await backendService.getListingById(choice);
-		const propertyType = user.workflowData.get("propertyType");
-		if (!listing || (propertyType && listing.propertyType !== propertyType)) {
-			await sendTextMessage(
-				phoneNumber,
-				"That property isn't in the list. Please select one from the list above.",
-			);
-			return;
-		}
+    if (!listing || (propertyType && listing.propertyType !== propertyType)) {
+      await sendTextMessage(phoneNumber, "That property isn't in the list. Please select one from the list above.");
+      return;
+    }
 
-		const symbol = listing.currency === "USD" ? "$" : "₦";
-		const priceStr = `${symbol}${Number(listing.pricePerNight || 0).toLocaleString()}/night`;
+    const symbol = listing.currency === "USD" ? "$" : "₦";
+    const priceStr = `${symbol}${Number(listing.pricePerNight ?? 0).toLocaleString()}/night`;
 
-		// Build full details text (all fields) for a follow-up message
-		const parts = [
-			`*${listing.name || "Listing"}*`,
-			listing.description ? listing.description : "",
-			`📍 ${[listing.address, listing.city, listing.state, listing.country].filter(Boolean).join(", ") || "—"}`,
-			`🛏 ${listing.bedrooms ?? "—"} bed · 🚿 ${listing.bathrooms ?? "—"} bath · 👥 ${listing.maxGuests ?? "—"} guests`,
-			listing.amenities && listing.amenities.length ?
-				`✨ ${listing.amenities.join(", ")}`
-			:	"",
-			`💰 ${priceStr}`,
-		];
-		const fullDetailsText = parts.filter(Boolean).join("\n\n");
+    const detailParts = [
+      `*${listing.name ?? "Listing"}*`,
+      listing.description ?? "",
+      `📍 ${[listing.address, listing.city, listing.state, listing.country].filter(Boolean).join(", ") || "—"}`,
+      `🛏 ${listing.bedrooms ?? "—"} bed · 🚿 ${listing.bathrooms ?? "—"} bath · 👥 ${listing.maxGuests ?? "—"} guests`,
+      listing.amenities?.length ? `✨ ${(listing.amenities as string[]).join(", ")}` : "",
+      `💰 ${priceStr}`,
+    ];
 
-		// Send all media for the chosen property (first 8 to avoid flooding), with short delay between sends
-		const mediaList = listing.media && listing.media.length ? listing.media : [];
-		const toSend = mediaList.slice(0, 8);
-		const CAPTION_MAX = 1024;
-		const descSnippet = (listing.description || "").substring(0, 150);
-		const firstCaption =
-			`${listing.name || "Listing"}\n${descSnippet}${listing.description && listing.description.length > 150 ? "…" : ""}\n${priceStr}${listing.city ? ` · ${listing.city}` : ""}`.slice(
-				0,
-				CAPTION_MAX,
-			);
-		for (let i = 0; i < toSend.length; i++) {
-			const m = toSend[i];
-			const url = m && (m.url || m.mediaUrl);
-			if (url) {
-				const caption = i === 0 ? firstCaption : "";
-				await sendMediaMessage(
-					phoneNumber,
-					url,
-					m.type && m.type.toLowerCase() === "video" ? "video" : "image",
-					caption,
-				);
-				if (i < toSend.length - 1) {
-					await new Promise((r) => setTimeout(r, 500));
-				}
-			}
-		}
-		// Always send full details as a text message so user gets everything (and gets details even if media failed)
-		await sendTextMessage(phoneNumber, fullDetailsText);
+    const mediaList: Record<string, unknown>[] = Array.isArray(listing.media) ? listing.media : [];
+    const CAPTION_MAX = 1024;
+    const descSnippet = String(listing.description ?? "").substring(0, 150);
+    const firstCaption =
+      `${listing.name ?? "Listing"}\n${descSnippet}${String(listing.description ?? "").length > 150 ? "…" : ""}\n${priceStr}${listing.city ? ` · ${listing.city}` : ""}`.slice(
+        0,
+        CAPTION_MAX
+      );
 
-		user.workflowData.set("propertyId", listing.id);
-		user.workflowData.set("propertyName", listing.name);
-		user.workflowData.set("pricePerNight", String(listing.pricePerNight));
-		user.workflowData.set("currency", listing.currency || "NGN");
-		const viewedRaw = user.workflowData.get("viewedListingIds") || "[]";
-		let viewedIds = [];
-		try {
-			viewedIds = JSON.parse(viewedRaw);
-		} catch (_) {}
-		if (!viewedIds.includes(listing.id)) viewedIds.push(listing.id);
-		user.workflowData.set("viewedListingIds", JSON.stringify(viewedIds));
+    const mediaSlice = mediaList.slice(0, 8);
+    for (const [i, m] of mediaSlice.entries()) {
+      const url = m.url ?? m.mediaUrl;
+      if (url) {
+        await sendMediaMessage(
+          phoneNumber,
+          String(url),
+          m.type === "video" ? "video" : "image",
+          i === 0 ? firstCaption : ""
+        );
+        if (i < mediaSlice.length - 1) await sleep(500);
+      }
+    }
 
-		user.workflowState = STATES.BOOKING_PROPERTY_CONFIRM;
-		await user.save();
-		await sendTextMessage(
-			phoneNumber,
-			"Are you satisfied with this property, or would you like to view another? Reply *Yes* to proceed with this one, or *Another* to see more options.",
-		);
-		return;
-	}
+    await sendTextMessage(phoneNumber, detailParts.filter(Boolean).join("\n\n"));
 
-	// Satisfied or view another
-	if (user.workflowState === STATES.BOOKING_PROPERTY_CONFIRM) {
-		const normalized = choice.toLowerCase().trim();
-		const isYes =
-			normalized === "yes" ||
-			normalized === "satisfied" ||
-			normalized === "ok" ||
-			normalized === "proceed" ||
-			normalized === "1";
-		const isAnother =
-			normalized === "another" ||
-			normalized === "no" ||
-			normalized === "view another" ||
-			normalized === "more" ||
-			normalized === "2";
+    user.workflowData.set("propertyId", String(listing.id));
+    user.workflowData.set("propertyName", String(listing.name ?? ""));
+    user.workflowData.set("pricePerNight", String(listing.pricePerNight));
+    user.workflowData.set("currency", String(listing.currency ?? "NGN"));
 
-		if (isYes) {
-			user.workflowState = STATES.BOOKING_CHECKIN;
-			await user.save();
-			await sendTextMessage(
-				phoneNumber,
-				"Great choice! Please enter your *Check-in Date* (YYYY-MM-DD):",
-			);
-			return;
-		}
+    let viewedIds: string[] = [];
+    try {
+      viewedIds = JSON.parse(user.workflowData.get("viewedListingIds") ?? "[]");
+    } catch {
+      /* ignore */
+    }
+    if (!viewedIds.includes(String(listing.id))) viewedIds.push(String(listing.id));
+    user.workflowData.set("viewedListingIds", JSON.stringify(viewedIds));
 
-		if (isAnother) {
-			const propertyType = user.workflowData.get("propertyType");
-			const viewedRaw = user.workflowData.get("viewedListingIds") || "[]";
-			let viewedIds = [];
-			try {
-				viewedIds = JSON.parse(viewedRaw);
-			} catch (_) {}
+    user.workflowState = WorkflowState.BOOKING_PROPERTY_CONFIRM;
+    await user.save();
+    await sendTextMessage(
+      phoneNumber,
+      "Are you satisfied with this property, or would you like to view another? Reply *Yes* to proceed with this one, or *Another* to see more options."
+    );
+    return;
+  }
 
-			const all = await backendService.getListings({
-				propertyType,
-				limit: 20,
-			});
-			const remaining = all.filter((l) => !viewedIds.includes(l.id));
-			if (remaining.length === 0) {
-				user.workflowState = STATES.PERSONAL_ASSISTANT;
-				user.isLiveChatActive = true;
-				user.workflowData = new Map();
-				await user.save();
-				await sendTextMessage(
-					phoneNumber,
-					`Sorry, there are no more ${propertyType.toLowerCase()} options available right now. We're connecting you with our customer service so they can help you find something or take your request. Please wait, an agent will be with you shortly.`,
-				);
-				return;
-			}
-			const listingRows = remaining.map((l) => {
-				const sym = l.currency === "USD" ? "$" : "₦";
-				const priceStr = `${sym}${Number(l.pricePerNight || 0).toLocaleString()}/night`;
-				const desc = (l.description || "").substring(0, 50);
-				const part = l.city ? ` — ${l.city}` : "";
-				const description =
-					desc ?
-						`${priceStr} · ${desc}${part}`.substring(0, 72)
-					:	`${priceStr}${part}`.substring(0, 72);
-				return {
-					id: l.id,
-					title: (l.name || "Listing").substring(0, 24),
-					description,
-				};
-			});
-			await sendListMessage(
-				phoneNumber,
-				`Here are ${remaining.length} more option(s). Select one to view photos and details.`,
-				"Select Property",
-				[{ title: "More Listings", rows: listingRows }],
-				`More ${propertyType}s 🏨`,
-			);
-			await sendTextMessage(
-				phoneNumber,
-				"Reply with a property from the list to see its photos, then we'll ask again if you're satisfied or want to view another.",
-			);
-			user.workflowState = STATES.BOOKING_LISTING;
-			await user.save();
-			return;
-		}
+  if (user.workflowState === WorkflowState.BOOKING_PROPERTY_CONFIRM) {
+    const normalized = choice.toLowerCase().trim();
+    const isYes = ["yes", "satisfied", "ok", "proceed", "1"].includes(normalized);
+    const isAnother = ["another", "no", "view another", "more", "2"].includes(normalized);
 
-		await sendTextMessage(
-			phoneNumber,
-			"Reply *Yes* to proceed with this property, or *Another* to see more options.",
-		);
-		return;
-	}
+    if (isYes) {
+      user.workflowState = WorkflowState.BOOKING_CHECKIN;
+      await user.save();
+      await sendTextMessage(phoneNumber, "Great choice! Please enter your *Check-in Date* (YYYY-MM-DD):");
+      return;
+    }
 
-	// Check-in date
-	if (user.workflowState === STATES.BOOKING_CHECKIN) {
-		if (!DATE_REGEX.test(choice)) {
-			await sendTextMessage(
-				phoneNumber,
-				"Invalid format. Please use YYYY-MM-DD (e.g., 2025-12-25):",
-			);
-			return;
-		}
-		user.workflowData.set("checkIn", choice);
-		user.workflowState = STATES.BOOKING_CHECKOUT;
-		await user.save();
-		await sendTextMessage(
-			phoneNumber,
-			"Got it! Now please enter your *Check-out Date* (YYYY-MM-DD):",
-		);
-		return;
-	}
+    if (isAnother) {
+      const propertyType = user.workflowData.get("propertyType") ?? "";
+      let viewedIds: string[] = [];
+      try {
+        viewedIds = JSON.parse(user.workflowData.get("viewedListingIds") ?? "[]");
+      } catch {
+        /* ignore */
+      }
 
-	// Check-out date
-	if (user.workflowState === STATES.BOOKING_CHECKOUT) {
-		if (!DATE_REGEX.test(choice)) {
-			await sendTextMessage(
-				phoneNumber,
-				"Invalid format. Please use YYYY-MM-DD (e.g., 2025-12-30):",
-			);
-			return;
-		}
+      const all = await backendService.getListings({ propertyType, limit: 20 });
+      const remaining = (all as Record<string, unknown>[]).filter((l) => !viewedIds.includes(String(l.id)));
 
-		const checkIn = new Date(user.workflowData.get("checkIn"));
-		const checkOut = new Date(choice);
-		if (checkOut <= checkIn) {
-			await sendTextMessage(
-				phoneNumber,
-				"Check-out date must be after check-in date. Please enter a valid date:",
-			);
-			return;
-		}
+      if (!remaining.length) {
+        user.workflowState = WorkflowState.PERSONAL_ASSISTANT;
+        user.isLiveChatActive = true;
+        user.workflowData = new Map();
+        await user.save();
+        await sendTextMessage(
+          phoneNumber,
+          `Sorry, there are no more ${propertyType.toLowerCase()} options available right now. We're connecting you with our customer service. Please wait, an agent will be with you shortly.`
+        );
+        return;
+      }
 
-		user.workflowData.set("checkOut", choice);
-		user.workflowState = STATES.BOOKING_GUESTS;
-		await user.save();
-		await sendTextMessage(phoneNumber, "How many guests are we expecting?");
-		return;
-	}
+      await sendListMessage(
+        phoneNumber,
+        `Here are ${remaining.length} more option(s). Select one to view photos and details.`,
+        "Select Property",
+        [
+          {
+            title: "More Listings",
+            rows: remaining.map((l) => {
+              const sym = l.currency === "USD" ? "$" : "₦";
+              const priceStr = `${sym}${Number(l.pricePerNight ?? 0).toLocaleString()}/night`;
+              const desc = String(l.description ?? "").substring(0, 50);
+              const part = l.city ? ` — ${l.city}` : "";
+              return {
+                id: String(l.id),
+                title: String(l.name ?? "Listing").substring(0, 24),
+                description: desc
+                  ? `${priceStr} · ${desc}${part}`.substring(0, 72)
+                  : `${priceStr}${part}`.substring(0, 72),
+              };
+            }),
+          },
+        ],
+        `More ${propertyType}s 🏨`
+      );
+      user.workflowState = WorkflowState.BOOKING_LISTING;
+      await user.save();
+      return;
+    }
 
-	// Guest count
-	if (user.workflowState === STATES.BOOKING_GUESTS) {
-		const guests = choice.replace(/\D/g, "");
-		if (!guests) {
-			await sendTextMessage(phoneNumber, "Please enter a valid number of guests.");
-			return;
-		}
-		user.workflowData.set("guestCount", guests);
-		user.workflowState = STATES.BOOKING_DETAILS_REQUESTS;
-		await user.save();
-		await sendTextMessage(
-			phoneNumber,
-			"Any special requests? (Type *None* if you have none)",
-		);
-		return;
-	}
+    await sendTextMessage(phoneNumber, "Reply *Yes* to proceed with this property, or *Another* to see more options.");
+    return;
+  }
 
-	// Special requests → show booking summary
-	if (user.workflowState === STATES.BOOKING_DETAILS_REQUESTS) {
-		user.workflowData.set("specialRequests", choice);
-		user.workflowState = STATES.BOOKING_PAYMENT;
-		await user.save();
-		await sendBookingSummary(user);
-	}
+  if (user.workflowState === WorkflowState.BOOKING_CHECKIN) {
+    if (!DATE_REGEX.test(choice)) {
+      await sendTextMessage(phoneNumber, "Invalid format. Please use YYYY-MM-DD (e.g., 2025-12-25):");
+      return;
+    }
+    user.workflowData.set("checkIn", choice);
+    user.workflowState = WorkflowState.BOOKING_CHECKOUT;
+    await user.save();
+    await sendTextMessage(phoneNumber, "Got it! Now please enter your *Check-out Date* (YYYY-MM-DD):");
+    return;
+  }
+
+  if (user.workflowState === WorkflowState.BOOKING_CHECKOUT) {
+    if (!DATE_REGEX.test(choice)) {
+      await sendTextMessage(phoneNumber, "Invalid format. Please use YYYY-MM-DD (e.g., 2025-12-30):");
+      return;
+    }
+    const checkIn = new Date(user.workflowData.get("checkIn") ?? "");
+    const checkOut = new Date(choice);
+    if (checkOut <= checkIn) {
+      await sendTextMessage(phoneNumber, "Check-out date must be after check-in date. Please enter a valid date:");
+      return;
+    }
+    user.workflowData.set("checkOut", choice);
+    user.workflowState = WorkflowState.BOOKING_GUESTS;
+    await user.save();
+    await sendTextMessage(phoneNumber, "How many guests are we expecting?");
+    return;
+  }
+
+  if (user.workflowState === WorkflowState.BOOKING_GUESTS) {
+    const guests = choice.replace(/\D/g, "");
+    if (!guests) {
+      await sendTextMessage(phoneNumber, "Please enter a valid number of guests.");
+      return;
+    }
+    user.workflowData.set("guestCount", guests);
+    user.workflowState = WorkflowState.BOOKING_DETAILS_REQUESTS;
+    await user.save();
+    await sendTextMessage(phoneNumber, "Any special requests? (Type *None* if you have none)");
+    return;
+  }
+
+  if (user.workflowState === WorkflowState.BOOKING_DETAILS_REQUESTS) {
+    user.workflowData.set("specialRequests", choice);
+    user.workflowState = WorkflowState.BOOKING_PAYMENT;
+    await user.save();
+    await sendBookingSummary(user);
+  }
 }
 
-async function sendBookingSummary(user) {
-	const propertyName = user.workflowData.get("propertyName");
-	const checkIn = user.workflowData.get("checkIn");
-	const checkOut = user.workflowData.get("checkOut");
-	const guestCount = user.workflowData.get("guestCount");
-	const specialRequests = user.workflowData.get("specialRequests");
-	const pricePerNight = Number(user.workflowData.get("pricePerNight"));
+async function sendBookingSummary(user: UserDoc): Promise<void> {
+  const propertyName = user.workflowData.get("propertyName") ?? "";
+  const checkIn = user.workflowData.get("checkIn") ?? "";
+  const checkOut = user.workflowData.get("checkOut") ?? "";
+  const guestCount = user.workflowData.get("guestCount") ?? "1";
+  const specialRequests = user.workflowData.get("specialRequests") ?? "";
+  const pricePerNight = Number(user.workflowData.get("pricePerNight"));
 
-	const nights = Math.ceil(
-		(new Date(checkOut).getTime() - new Date(checkIn).getTime()) /
-			(1000 * 60 * 60 * 24),
-	);
-	const totalAmount = nights * pricePerNight;
-	user.workflowData.set("totalAmount", String(totalAmount));
-	await user.save();
+  const nights = Math.ceil((new Date(checkOut).getTime() - new Date(checkIn).getTime()) / (1000 * 60 * 60 * 24));
+  const totalAmount = nights * pricePerNight;
+  user.workflowData.set("totalAmount", String(totalAmount));
+  await user.save();
 
-	let walletInfo = "Wallet details unavailable.";
-	try {
-		const wallet = await backendService.getWallet(user.phoneNumber);
-		if (wallet?.virtualAccount) {
-			walletInfo =
-				`\n🏦 *Fund Your Wallet to Pay*\nBank: ${wallet.virtualAccount.bankName}` +
-				`\nAccount Name: ${wallet.virtualAccount.accountName}` +
-				`\nAccount Number: ${wallet.virtualAccount.accountNumber}` +
-				`\n\nBalance: ₦${Number(wallet.balance).toLocaleString()}`;
-		}
-	} catch (err) {
-		logger.error("Error fetching wallet for booking summary", {
-			error: err.message,
-		});
-	}
+  let walletInfo = "Wallet details unavailable.";
+  try {
+    const wallet = await backendService.getWallet(user.phoneNumber);
+    if (wallet?.virtualAccount) {
+      walletInfo =
+        `\n🏦 *Fund Your Wallet to Pay*\nBank: ${wallet.virtualAccount.bankName}` +
+        `\nAccount Name: ${wallet.virtualAccount.accountName}` +
+        `\nAccount Number: ${wallet.virtualAccount.accountNumber}` +
+        `\n\nBalance: ₦${Number(wallet.balance).toLocaleString()}`;
+    }
+  } catch (err) {
+    logger.error("Error fetching wallet for booking summary", { error: (err as Error).message });
+  }
 
-	await sendTextMessage(
-		user.phoneNumber,
-		`*Booking Summary* 🏨\n\n` +
-			`Property: ${propertyName}\n` +
-			`Dates: ${checkIn} → ${checkOut} (${nights} nights)\n` +
-			`Guests: ${guestCount}\n` +
-			`Amount: ₦${totalAmount.toLocaleString()}\n` +
-			`Requests: ${specialRequests}\n` +
-			`${walletInfo}\n\n` +
-			`*To confirm, please type your Security Answer:*`,
-	);
+  await sendTextMessage(
+    user.phoneNumber,
+    `*Booking Summary* 🏨\n\nProperty: ${propertyName}\nDates: ${checkIn} → ${checkOut} (${nights} nights)\nGuests: ${guestCount}\nAmount: ₦${totalAmount.toLocaleString()}\nRequests: ${specialRequests}\n${walletInfo}\n\n*To confirm, please type your Security Answer:*`
+  );
 }
 
-async function handleBookingPaymentVerify(user, message) {
-	const securityAnswer = message.trim();
-	const propertyId = user.workflowData.get("propertyId");
-	const checkIn = user.workflowData.get("checkIn");
-	const checkOut = user.workflowData.get("checkOut");
-	const guestCount = Number(user.workflowData.get("guestCount"));
-	const specialRequests = user.workflowData.get("specialRequests");
-	const totalAmount = Number(user.workflowData.get("totalAmount"));
+async function handleBookingPaymentVerify(user: UserDoc, message: string): Promise<void> {
+  const securityAnswer = message.trim();
+  const propertyId = user.workflowData.get("propertyId") ?? "";
+  const checkIn = user.workflowData.get("checkIn") ?? "";
+  const checkOut = user.workflowData.get("checkOut") ?? "";
+  const guestCount = Number(user.workflowData.get("guestCount"));
+  const specialRequests = user.workflowData.get("specialRequests") ?? "";
+  const totalAmount = Number(user.workflowData.get("totalAmount"));
 
-	try {
-		const booking = await backendService.createBooking({
-			userIdentifier: user.phoneNumber,
-			securityAnswer,
-			type: "SHORTLET",
-			propertyId,
-			checkIn,
-			checkOut,
-			guestCount,
-			specialRequests,
-		});
+  try {
+    const booking = await backendService.createBooking({
+      userIdentifier: user.phoneNumber,
+      securityAnswer,
+      type: "SHORTLET",
+      propertyId,
+      checkIn,
+      checkOut,
+      guestCount,
+      specialRequests,
+    });
 
-		if (!booking) throw new Error("Failed to create booking on core backend");
+    if (!booking) throw new Error("Failed to create booking on core backend");
 
-		// Verify balance
-		const wallet = await backendService.getWallet(user.phoneNumber);
-		if (wallet && Number(wallet.balance) < totalAmount) {
-			const shortfall = (totalAmount - Number(wallet.balance)).toLocaleString();
-			let depositInfo = "";
-			if (wallet.virtualAccount) {
-				depositInfo =
-					`Bank: ${wallet.virtualAccount.bankName}\n` +
-					`Account Number: ${wallet.virtualAccount.accountNumber}\n` +
-					`Account Name: ${wallet.virtualAccount.accountName}`;
-			} else {
-				depositInfo = "Please contact support for deposit instructions.";
-			}
-			await sendTextMessage(
-				user.phoneNumber,
-				`⚠️ *Insufficient Balance*\n\nYour balance is ₦${Number(wallet.balance).toLocaleString()}, ` +
-					`but this booking requires ₦${totalAmount.toLocaleString()}.\n\n*Deposit ₦${shortfall} to:*\n${depositInfo}` +
-					`\n\nOnce deposited, type your *Security Answer* again to confirm.`,
-			);
-			return;
-		}
+    const wallet = await backendService.getWallet(user.phoneNumber);
+    if (wallet && Number(wallet.balance) < totalAmount) {
+      const shortfall = (totalAmount - Number(wallet.balance)).toLocaleString();
+      const depositInfo = wallet.virtualAccount
+        ? `Bank: ${wallet.virtualAccount.bankName}\nAccount Number: ${wallet.virtualAccount.accountNumber}\nAccount Name: ${wallet.virtualAccount.accountName}`
+        : "Please contact support for deposit instructions.";
+      await sendTextMessage(
+        user.phoneNumber,
+        `⚠️ *Insufficient Balance*\n\nYour balance is ₦${Number(wallet.balance).toLocaleString()}, but this booking requires ₦${totalAmount.toLocaleString()}.\n\n*Deposit ₦${shortfall} to:*\n${depositInfo}\n\nOnce deposited, type your *Security Answer* again to confirm.`
+      );
+      return;
+    }
 
-		// Process payment
-		const result = await backendService.initiateTransfer({
-			userIdentifier: user.phoneNumber,
-			securityAnswer,
-			amount: totalAmount,
-			narration: `Booking: ${user.workflowData.get("propertyName")}`,
-		});
+    const result = await backendService.initiateTransfer({
+      userIdentifier: user.phoneNumber,
+      securityAnswer,
+      amount: totalAmount,
+      narration: `Booking: ${user.workflowData.get("propertyName")}`,
+    });
 
-		if (!result) throw new Error("Payment failed after booking creation");
+    if (!result) throw new Error("Payment failed after booking creation");
 
-		await sendTextMessage(
-			user.phoneNumber,
-			`*Booking Confirmed!* 🎉\n\n` +
-				`Property: *${user.workflowData.get("propertyName")}*\n` +
-				`Booking ID: ${booking.id}\n` +
-				`Amount: ₦${totalAmount.toLocaleString()}\n\n` +
-				`Type *Menu* to return to the main menu.`,
-		);
+    await sendTextMessage(
+      user.phoneNumber,
+      `*Booking Confirmed!* 🎉\n\nProperty: *${user.workflowData.get("propertyName")}*\nBooking ID: ${booking.id}\nAmount: ₦${totalAmount.toLocaleString()}\n\nType *Menu* to return to the main menu.`
+    );
 
-		user.workflowState = STATES.MAIN_MENU;
-		await user.save();
-	} catch (err) {
-		logger.error("Error in booking payment flow", { error: err.message });
-		await sendTextMessage(
-			user.phoneNumber,
-			"Sorry, we couldn't process your booking. Please ensure you have enough balance and provided the correct security answer.\n\nType *Menu* to restart.",
-		);
-	}
+    user.workflowState = WorkflowState.MAIN_MENU;
+    await user.save();
+  } catch (err) {
+    logger.error("Error in booking payment flow", { error: (err as Error).message });
+    await sendTextMessage(
+      user.phoneNumber,
+      "Sorry, we couldn't process your booking. Please ensure you have enough balance and provided the correct security answer.\n\nType *Menu* to restart."
+    );
+  }
 }
 
 // ─── Concierge Flow ───────────────────────────────────────────────────────────
 
-async function handleConciergeFlow(user, message) {
-	const { phoneNumber } = user;
-	const choice = message.trim();
+async function handleConciergeFlow(user: UserDoc, message: string): Promise<void> {
+  const { phoneNumber } = user;
+  const choice = message.trim();
 
-	// Category selection
-	if (user.workflowState === STATES.CONCIERGE_CATEGORY) {
-		if (choice.startsWith("concierge_cat_")) {
-			const category = choice.replace("concierge_cat_", "");
-			user.workflowData.set("selectedCategory", category);
+  if (user.workflowState === WorkflowState.CONCIERGE_CATEGORY) {
+    if (!choice.startsWith("concierge_cat_")) return;
 
-			const items = await backendService.getConciergeItems({
-				category,
-				limit: 10,
-			});
+    const category = choice.replace("concierge_cat_", "");
+    user.workflowData.set("selectedCategory", category);
 
-			if (!items || items.length === 0) {
-				await sendTextMessage(
-					phoneNumber,
-					`No items available in ${category} at the moment.`,
-				);
-				user.workflowState = STATES.SERVICE_MENU;
-				await user.save();
-				await sendServicesMenu(phoneNumber);
-				return;
-			}
+    const items = await backendService.getConciergeItems({ category, limit: 10 });
+    if (!items?.length) {
+      await sendTextMessage(phoneNumber, `No items available in ${category} at the moment.`);
+      user.workflowState = WorkflowState.SERVICE_MENU;
+      await user.save();
+      await sendServicesMenu(phoneNumber);
+      return;
+    }
 
-			user.workflowState = STATES.CONCIERGE_DEALS;
-			await user.save();
+    user.workflowState = WorkflowState.CONCIERGE_DEALS;
+    await user.save();
 
-			const rows = items.map((item) => ({
-				id: item.id,
-				title: item.name,
-				description: `${item.currency} ${Number(item.price).toLocaleString()} - ${item.category}`,
-			}));
+    await sendListMessage(
+      phoneNumber,
+      `*${category} Services* 🌟\n\nSelect a service to view details:`,
+      "View Services",
+      [
+        {
+          title: "Available Services",
+          rows: (items as Record<string, unknown>[]).map((item) => ({
+            id: String(item.id),
+            title: String(item.name),
+            description: `${item.currency} ${Number(item.price).toLocaleString()} - ${item.category}`,
+          })),
+        },
+      ],
+      "Concierge Deals 🛎️"
+    );
+    return;
+  }
 
-			await sendListMessage(
-				phoneNumber,
-				`*${category} Services* 🌟\n\nSelect a service to view details:`,
-				"View Services",
-				[{ title: "Available Services", rows }],
-				"Concierge Deals 🛎️",
-			);
-			return;
-		}
-	}
+  if (user.workflowState === WorkflowState.CONCIERGE_DEALS) {
+    const allItems = (await backendService.getConciergeItems({ limit: 50 })) as Record<string, unknown>[];
+    const item = allItems.find((i) => i.id === choice);
 
-	// Deal details & confirmation
-	if (user.workflowState === STATES.CONCIERGE_DEALS) {
-		const itemId = choice;
-		const item = await backendService
-			.getConciergeItems({ limit: 50 })
-			.then((arr) => arr.find((i) => i.id === itemId));
+    if (!item) {
+      await sendTextMessage(phoneNumber, "Invalid selection. Please try again.");
+      return;
+    }
 
-		if (!item) {
-			await sendTextMessage(phoneNumber, "Invalid selection. Please try again.");
-			return;
-		}
+    user.workflowData.set("selectedDealId", String(item.id));
+    user.workflowData.set("selectedDealName", String(item.name));
+    user.workflowData.set("selectedDealPrice", String(item.price));
+    user.workflowState = WorkflowState.CONCIERGE_DETAILS;
+    await user.save();
 
-		user.workflowData.set("selectedDealId", item.id);
-		user.workflowData.set("selectedDealName", item.name);
-		user.workflowData.set("selectedDealPrice", String(item.price));
-		user.workflowState = STATES.CONCIERGE_DETAILS;
-		await user.save();
+    await sendTextMessage(
+      phoneNumber,
+      `*${item.name}* 🌟\n\n${item.description ?? "No description available."}\n\n*Price:* ${item.currency} ${Number(item.price).toLocaleString()}\n\nPlease reply with your specific requirements for this service (e.g., date, time, location, or any other preferences):`
+    );
+    return;
+  }
 
-		await sendTextMessage(
-			phoneNumber,
-			`*${item.name}* 🌟\n\n${item.description || "No description available."}\n\n*Price:* ${item.currency} ${Number(item.price).toLocaleString()}\n\nPlease reply with your specific requirements for this service (e.g., date, time, location, or any other preferences):`,
-		);
-		return;
-	}
+  if (user.workflowState === WorkflowState.CONCIERGE_DETAILS) {
+    user.workflowData.set("conciergeDetails", choice);
+    user.workflowState = WorkflowState.CONCIERGE_BOOKING;
+    await user.save();
 
-	// Specific Details Prompt
-	if (user.workflowState === STATES.CONCIERGE_DETAILS) {
-		const details = choice;
-		user.workflowData.set("conciergeDetails", details);
-		user.workflowState = STATES.CONCIERGE_BOOKING;
-		await user.save();
+    const dealName = user.workflowData.get("selectedDealName") ?? "";
+    await sendInteractiveMessage(
+      phoneNumber,
+      `You've selected: *${dealName}*\n\nYour requirements: _${choice}_\n\nWould you like to proceed with this service request?`,
+      [
+        { id: "confirm", title: "✅ Proceed to Booking" },
+        { id: "back", title: "🔙 Back to Categories" },
+      ]
+    );
+    return;
+  }
 
-		const dealName = user.workflowData.get("selectedDealName");
+  if (user.workflowState === WorkflowState.CONCIERGE_BOOKING) {
+    if (choice.toLowerCase() === "confirm") {
+      const dealName = user.workflowData.get("selectedDealName") ?? "";
+      const details = user.workflowData.get("conciergeDetails") ?? "";
 
-		await sendInteractiveMessage(
-			phoneNumber,
-			`You've selected: *${dealName}*\n\nYour requirements: _${details}_\n\nWould you like to proceed with this service request?`,
-			[
-				{ id: "confirm", title: "✅ Proceed to Booking" },
-				{ id: "back", title: "🔙 Back to Categories" },
-			],
-		);
-		return;
-	}
+      await sendTextMessage(phoneNumber, "Redirecting to booking... ⏳");
 
-	// Booking completion
-	if (user.workflowState === STATES.CONCIERGE_BOOKING) {
-		if (choice.toLowerCase() === "confirm") {
-			const dealName = user.workflowData.get("selectedDealName");
-			const details = user.workflowData.get("conciergeDetails");
+      try {
+        await backendService.createBooking({
+          type: "CONCIERGE",
+          phone: phoneNumber,
+          specialRequests: `CONCIERGE SERVICE: ${dealName} | DETAILS: ${details}`,
+          checkIn: new Date().toISOString().split("T")[0],
+          guestCount: 1,
+          currency: "NGN",
+        });
 
-			await sendTextMessage(phoneNumber, "Redirecting to booking... ⏳");
+        user.workflowState = WorkflowState.MAIN_MENU;
+        await user.save();
 
-			try {
-				await backendService.createBooking({
-					type: "CONCIERGE",
-					phone: phoneNumber,
-					specialRequests: `CONCIERGE SERVICE: ${dealName} | DETAILS: ${details}`,
-					// Using today's date as checkIn since the core backend might strictly require checkIn/checkOut format
-					// though the backend validator only enforces it for SHORTLET. To be safe, providing a dummy date.
-					checkIn: new Date().toISOString().split("T")[0],
-					guestCount: 1,
-					currency: "NGN",
-				});
+        await sendTextMessage(
+          phoneNumber,
+          `✅ *Service Request Confirmed!*\n\nYour request for *${dealName}* has been received.\n\nOur concierge team will review your requirements and contact you shortly to finalize.`
+        );
+        await sendWelcomeMenu(phoneNumber, user.name);
+      } catch {
+        await sendTextMessage(phoneNumber, "Booking failed. Please contact support.");
+      }
+      return;
+    }
 
-				user.workflowState = STATES.MAIN_MENU;
-				await user.save();
-
-				await sendTextMessage(
-					phoneNumber,
-					`✅ *Service Request Confirmed!*\n\nYour request for *${dealName}* has been received.\n\nOur concierge team will review your requirements and contact you shortly to finalize.`,
-				);
-				await sendWelcomeMenu(phoneNumber, user.name);
-			} catch (err) {
-				await sendTextMessage(
-					phoneNumber,
-					"Booking failed. Please contact support.",
-				);
-			}
-			return;
-		}
-
-		if (choice.toLowerCase() === "back") {
-			user.workflowState = STATES.CONCIERGE_CATEGORY;
-			await user.save();
-			// Re-show categories
-			return handleServiceMenu(user, "service_concierge");
-		}
-	}
+    if (choice.toLowerCase() === "back") {
+      user.workflowState = WorkflowState.CONCIERGE_CATEGORY;
+      await user.save();
+      await handleServiceMenu(user, "service_concierge");
+    }
+  }
 }
 
 // ─── Referral Flow ────────────────────────────────────────────────────────────
 
-async function handleReferralFlow(user, message) {
-	const choice = message.trim().toLowerCase();
+async function handleReferralFlow(user: UserDoc, message: string): Promise<void> {
+  const choice = message.trim().toLowerCase();
 
-	if (choice === "menu" || choice === "back" || choice === "main menu") {
-		user.workflowState = STATES.MAIN_MENU;
-		await user.save();
-		await sendWelcomeMenu(user.phoneNumber, user.name);
-		return;
-	}
+  if (choice === "menu" || choice === "back" || choice === "main menu") {
+    user.workflowState = WorkflowState.MAIN_MENU;
+    await user.save();
+    await sendWelcomeMenu(user.phoneNumber, user.name);
+    return;
+  }
 
-	if (!user.referralCode) {
-		user.referralCode = generateReferralCode(user.phoneNumber);
-		await user.save();
-	}
+  if (!user.referralCode) {
+    user.referralCode = generateReferralCode(user.phoneNumber);
+    await user.save();
+  }
 
-	const referralLink = `https://wa.me/${process.env.WHATSAPP_PHONE_NUMBER}?text=Hi, I want to join LuxePass using referral code ${user.referralCode}`;
+  const referralLink = `https://wa.me/${process.env.WHATSAPP_PHONE_NUMBER}?text=Hi, I want to join LuxePass using referral code ${user.referralCode}`;
 
-	await sendTextMessage(
-		user.phoneNumber,
-		`*Referral Program* 🎁\n\nInvite friends to LuxePass and earn rewards!\n\n*Your Referral Link:* ${referralLink}\n\n*Earnings Summary* 💰\nTotal Earned: ₦${(user.rewardsEarned || 0).toLocaleString()}\nMin Withdrawal: ₦2,000\n\n*How to Withdraw* 🏦\nOnce you reach the minimum balance, reply with *WITHDRAW* or contact our concierge via this chat to process your payout.\n\nShare your link with friends today! 🚀`,
-	);
+  await sendTextMessage(
+    user.phoneNumber,
+    `*Referral Program* 🎁\n\nInvite friends to LuxePass and earn rewards!\n\n*Your Referral Link:* ${referralLink}\n\n*Earnings Summary* 💰\nTotal Earned: ₦${(user.rewardsEarned || 0).toLocaleString()}\nMin Withdrawal: ₦2,000\n\n*How to Withdraw* 🏦\nOnce you reach the minimum balance, reply with *WITHDRAW* or contact our concierge via this chat to process your payout.\n\nShare your link with friends today! 🚀`
+  );
 
-	user.workflowState = STATES.MAIN_MENU;
-	await user.save();
-	await sendWelcomeMenu(user.phoneNumber, user.name);
+  user.workflowState = WorkflowState.MAIN_MENU;
+  await user.save();
+  await sendWelcomeMenu(user.phoneNumber, user.name);
 }
 
 // ─── Wallet Flow ──────────────────────────────────────────────────────────────
 
-/**
- * Handles all WALLET_* states with a state-first dispatch pattern.
- * Each state block is self-contained and returns early.
- */
-export async function handleWalletFlow(user, message) {
-	const choice = message.trim().toLowerCase();
-	const { phoneNumber } = user;
+export async function handleWalletFlow(user: UserDoc, message: string): Promise<void> {
+  const choice = message.trim().toLowerCase();
+  const { phoneNumber } = user;
 
-	const isSignupCommand =
-		choice === "new account" ||
-		choice === "sign up" ||
-		choice === "signup" ||
-		choice === "register" ||
-		choice === "create account" ||
-		choice === "start over" ||
-		choice === "reset" ||
-		choice === "restart";
+  if (isSignupCommand(choice)) {
+    user.workflowData = new Map();
+    user.isLiveChatActive = false;
+    user.assignedPaId = undefined;
+    user.workflowState = user.name ? WorkflowState.ONBOARDING_EMAIL : WorkflowState.ONBOARDING_NAME;
+    await user.save();
+    await sendTextMessage(phoneNumber, "Sure! Let's start your LuxePass sign-up again.");
+    if (user.workflowState === WorkflowState.ONBOARDING_NAME) {
+      await sendTextMessage(phoneNumber, "Welcome to LuxePass! 👋\n\nPlease enter your name to begin:");
+    } else {
+      await sendTextMessage(phoneNumber, "Great! Please provide your email address for account registration:");
+    }
+    return;
+  }
 
-	if (isSignupCommand) {
-		user.workflowData = new Map();
-		user.isLiveChatActive = false;
-		user.assignedPaId = undefined;
-		user.workflowState = user.name
-			? STATES.ONBOARDING_EMAIL
-			: STATES.ONBOARDING_NAME;
-		await user.save();
+  if (choice === "menu" || choice === "back" || choice === "main menu") {
+    user.workflowState = WorkflowState.MAIN_MENU;
+    user.workflowData.delete("walletPendingAction");
+    await user.save();
+    await sendWelcomeMenu(phoneNumber, user.name);
+    return;
+  }
 
-		await sendTextMessage(
-			phoneNumber,
-			"Sure! Let's start your LuxePass sign-up again.",
-		);
+  if (user.workflowState === WorkflowState.WALLET_VERIFY_SECURITY) {
+    const securityAnswer = message.trim();
+    const pendingAction = user.workflowData.get("walletPendingAction");
+    const coreUserId = user.coreUserId ?? user.workflowData.get("coreUserId");
 
-		if (user.workflowState === STATES.ONBOARDING_NAME) {
-			await sendTextMessage(
-				phoneNumber,
-				"Welcome to LuxePass! 👋\n\nPlease enter your name to begin:",
-			);
-		} else {
-			await sendTextMessage(
-				phoneNumber,
-				"Great! Please provide your email address for account registration:",
-			);
-		}
-		return;
-	}
+    if (!coreUserId) {
+      await sendTextMessage(phoneNumber, "We couldn't verify your identity. Please type *Menu* and try again.");
+      return;
+    }
 
-	const isWalletResetCommand =
-		choice === "new account" ||
-		choice === "sign up" ||
-		choice === "signup" ||
-		choice === "register" ||
-		choice === "create account" ||
-		choice === "start over" ||
-		choice === "reset" ||
-		choice === "restart";
+    try {
+      const token = await backendService.verifySecurityAnswer(coreUserId, securityAnswer);
+      if (!token) {
+        await sendTextMessage(
+          phoneNumber,
+          "Incorrect security answer. ❌\n\nPlease try again or type *Menu* to return."
+        );
+        return;
+      }
 
-	if (isWalletResetCommand) {
-		user.workflowData = new Map();
-		user.isLiveChatActive = false;
-		user.assignedPaId = undefined;
-		user.workflowState = user.name
-			? STATES.ONBOARDING_EMAIL
-			: STATES.ONBOARDING_NAME;
-		await user.save();
+      const wallet = await backendService.getWallet(coreUserId, token);
+      if (!wallet) {
+        await sendTextMessage(
+          phoneNumber,
+          "Your wallet is currently unavailable. Please try again later or type *Menu* to return."
+        );
+        return;
+      }
 
-		await sendTextMessage(
-			phoneNumber,
-			"Sure! Let's start your LuxePass sign-up again.",
-		);
+      user.workflowState = WorkflowState.WALLET_MENU;
+      user.workflowData.delete("walletPendingAction");
+      await user.save();
 
-		if (user.workflowState === STATES.ONBOARDING_NAME) {
-			await sendTextMessage(
-				phoneNumber,
-				"Welcome to LuxePass! 👋\n\nPlease enter your name to begin:",
-			);
-		} else {
-			await sendTextMessage(
-				phoneNumber,
-				"Great! Please provide your email address for account registration:",
-			);
-		}
-		return;
-	}
+      if (pendingAction === "wallet_balance" || pendingAction?.includes("balance")) {
+        await sendTextMessage(
+          phoneNumber,
+          `*Your Balance* 💰\n\nYour current wallet balance is: *₦${Number(wallet.balance).toLocaleString()}*`
+        );
+      } else if (pendingAction === "wallet_deposit" || pendingAction?.includes("deposit")) {
+        const vAccount = wallet.virtualAccounts?.[0] ?? wallet.virtualAccount;
+        const depositText = vAccount
+          ? `*Deposit Account Details* 📥\n\n🏦 *Bank*: ${vAccount.bankName}\n🔢 *Account Number*: ${vAccount.accountNumber}\n👤 *Account Name*: ${vAccount.accountName}\n\n_Funds are credited instantly upon confirmation._`
+          : "We are setting up your virtual account. Please contact support or check back shortly.";
+        await sendTextMessage(phoneNumber, depositText);
+      }
 
-	// Global back command — always escape to main menu
-	if (choice === "menu" || choice === "back" || choice === "main menu") {
-		user.workflowState = STATES.MAIN_MENU;
-		user.workflowData.delete("walletPendingAction");
-		await user.save();
-		await sendWelcomeMenu(phoneNumber, user.name);
-		return;
-	}
+      await sendWalletMenu(phoneNumber);
+    } catch (err) {
+      logger.error("Wallet security verification failed", { error: (err as Error).message });
+      await sendTextMessage(
+        phoneNumber,
+        "An error occurred while accessing your wallet. Please try again or type *Menu* to return."
+      );
+    }
+    return;
+  }
 
-	// ── WALLET_VERIFY_SECURITY ────────────────────────────────────────────────
-	if (user.workflowState === STATES.WALLET_VERIFY_SECURITY) {
-		const securityAnswer = message.trim();
-		const pendingAction = user.workflowData.get("walletPendingAction");
-		const coreUserId = user.coreUserId || user.workflowData.get("coreUserId");
+  if (user.workflowState === WorkflowState.WALLET_ADD_BANK_NAME) {
+    user.workflowData.set("newBankName", message.trim());
+    user.workflowState = WorkflowState.WALLET_ADD_ACCOUNT_NUMBER;
+    await user.save();
+    await sendTextMessage(phoneNumber, "Great! Now enter your *Account Number*:");
+    return;
+  }
 
-		if (!coreUserId) {
-			await sendTextMessage(
-				phoneNumber,
-				"We couldn't verify your identity. Please type *Menu* and try again.",
-			);
-			return;
-		}
+  if (user.workflowState === WorkflowState.WALLET_ADD_ACCOUNT_NUMBER) {
+    const accountNumber = message.trim();
+    if (accountNumber.length < 10) {
+      await sendTextMessage(phoneNumber, "Please enter a valid 10-digit account number.");
+      return;
+    }
+    user.workflowData.set("newAccountNumber", accountNumber);
+    user.workflowState = WorkflowState.WALLET_ADD_ACCOUNT_NAME;
+    await user.save();
+    await sendTextMessage(
+      phoneNumber,
+      "Almost there! Enter the *Account Name* (exactly as it appears on your bank account):"
+    );
+    return;
+  }
 
-		try {
-			const token = await backendService.verifySecurityAnswer(
-				coreUserId,
-				securityAnswer,
-			);
+  if (user.workflowState === WorkflowState.WALLET_ADD_ACCOUNT_NAME) {
+    const accountName = message.trim();
+    const bankName = user.workflowData.get("newBankName") ?? "";
+    const accountNumber = user.workflowData.get("newAccountNumber") ?? "";
 
-			if (!token) {
-				await sendTextMessage(
-					phoneNumber,
-					"Incorrect security answer. ❌\n\nPlease try again or type *Menu* to return.",
-				);
-				return;
-			}
+    if (!user.savedBankAccounts) user.savedBankAccounts = [];
+    user.savedBankAccounts.push({ bankName, accountNumber, accountName });
+    user.workflowData.delete("newBankName");
+    user.workflowData.delete("newAccountNumber");
+    user.workflowState = WorkflowState.WALLET_MENU;
+    await user.save();
 
-			const wallet = await backendService.getWallet(coreUserId, token);
+    await sendTextMessage(
+      phoneNumber,
+      `✅ *Account Saved!*\n\n🏦 *Bank*: ${bankName}\n🔢 *Account*: ${accountNumber}\n👤 *Name*: ${accountName}`
+    );
+    await sendWalletMenu(phoneNumber);
+    return;
+  }
 
-			if (!wallet) {
-				await sendTextMessage(
-					phoneNumber,
-					"Your wallet is currently unavailable. Please try again later or type *Menu* to return.",
-				);
-				return;
-			}
+  if (user.workflowState === WorkflowState.WALLET_CHANGE_SECURITY_PICK) {
+    if (choice.startsWith("sq_")) {
+      const index = parseInt(choice.replace("sq_", ""), 10);
+      if (Number.isNaN(index) || index < 0 || index >= SECURITY_QUESTIONS.length) {
+        await sendTextMessage(phoneNumber, "Please select a valid question from the list.");
+        return;
+      }
+      const question = SECURITY_QUESTIONS[index];
+      user.workflowData.set("newSecurityQuestion", question);
+      user.workflowState = WorkflowState.WALLET_CHANGE_SECURITY_ANSWER;
+      await user.save();
+      await sendTextMessage(phoneNumber, `Got it. Now enter your answer for:\n\n_"${question}"_`);
+    } else {
+      await sendTextMessage(phoneNumber, "Please select a question from the list above.");
+    }
+    return;
+  }
 
-			user.workflowState = STATES.WALLET_MENU;
-			user.workflowData.delete("walletPendingAction");
-			await user.save();
+  if (user.workflowState === WorkflowState.WALLET_CHANGE_SECURITY_ANSWER) {
+    const answer = message.trim();
+    if (answer.length < 2) {
+      await sendTextMessage(phoneNumber, "The answer must be at least 2 characters. Please try again.");
+      return;
+    }
+    const question = user.workflowData.get("newSecurityQuestion") ?? "";
+    const coreUserId = user.coreUserId ?? user.workflowData.get("coreUserId");
 
-			if (
-				pendingAction === "wallet_balance" ||
-				pendingAction?.includes("balance")
-			) {
-				await sendTextMessage(
-					phoneNumber,
-					`*Your Balance* 💰\n\nYour current wallet balance is: *₦${Number(wallet.balance).toLocaleString()}*`,
-				);
-			} else if (
-				pendingAction === "wallet_deposit" ||
-				pendingAction?.includes("deposit")
-			) {
-				const vAccount = wallet.virtualAccounts?.[0] ?? wallet.virtualAccount;
-				const depositText =
-					vAccount ?
-						`*Deposit Account Details* 📥\n\n🏦 *Bank*: ${vAccount.bankName}\n🔢 *Account Number*: ${vAccount.accountNumber}\n👤 *Account Name*: ${vAccount.accountName}\n\n_Funds are credited instantly upon confirmation._`
-					:	"We are setting up your virtual account. Please contact support or check back shortly.";
-				await sendTextMessage(phoneNumber, depositText);
-			}
+    try {
+      const success = await backendService.setSecurityQuestion({ userIdentifier: coreUserId, question, answer });
+      if (!success) throw new Error("setSecurityQuestion returned false");
+      user.workflowData.delete("newSecurityQuestion");
+      user.workflowState = WorkflowState.WALLET_MENU;
+      await user.save();
+      await sendTextMessage(
+        phoneNumber,
+        "✅ *Security question updated successfully!*\n\nYour new security question is active."
+      );
+      await sendWalletMenu(phoneNumber);
+    } catch (err) {
+      logger.error("Error updating security question", { phoneNumber, error: (err as Error).message });
+      await sendTextMessage(
+        phoneNumber,
+        "❌ Failed to update security question. Please try again or type *Menu* to return."
+      );
+    }
+    return;
+  }
 
-			await sendWalletMenu(phoneNumber);
-		} catch (err) {
-			logger.error("Wallet security verification failed", {
-				error: err.response?.data ?? err.message,
-			});
-			await sendTextMessage(
-				phoneNumber,
-				"An error occurred while accessing your wallet. Please try again or type *Menu* to return.",
-			);
-		}
-		return;
-	}
+  if (user.workflowState === WorkflowState.WALLET_MANAGE_ACCOUNTS) {
+    if (choice === "wallet_add_account") {
+      user.workflowState = WorkflowState.WALLET_ADD_BANK_NAME;
+      await user.save();
+      await sendTextMessage(phoneNumber, "Please enter your *Bank Name* (e.g. Zenith Bank, GTBank):");
+      return;
+    }
 
-	// ── WALLET_ADD_BANK_NAME ──────────────────────────────────────────────────
-	if (user.workflowState === STATES.WALLET_ADD_BANK_NAME) {
-		user.workflowData.set("newBankName", message.trim());
-		user.workflowState = STATES.WALLET_ADD_ACCOUNT_NUMBER;
-		await user.save();
-		await sendTextMessage(phoneNumber, "Great! Now enter your *Account Number*:");
-		return;
-	}
+    if (choice === "wallet_delete_account") {
+      const accounts = user.savedBankAccounts ?? [];
+      if (!accounts.length) return;
 
-	// ── WALLET_ADD_ACCOUNT_NUMBER ─────────────────────────────────────────────
-	if (user.workflowState === STATES.WALLET_ADD_ACCOUNT_NUMBER) {
-		const accountNumber = message.trim();
-		if (accountNumber.length < 10) {
-			await sendTextMessage(
-				phoneNumber,
-				"Please enter a valid 10-digit account number.",
-			);
-			return;
-		}
-		user.workflowData.set("newAccountNumber", accountNumber);
-		user.workflowState = STATES.WALLET_ADD_ACCOUNT_NAME;
-		await user.save();
-		await sendTextMessage(
-			phoneNumber,
-			"Almost there! Enter the *Account Name* (exactly as it appears on your bank account):",
-		);
-		return;
-	}
+      user.workflowState = WorkflowState.WALLET_DELETE_ACCOUNT_SELECT;
+      await user.save();
+      await sendListMessage(
+        phoneNumber,
+        "Which account would you like to delete?",
+        "Select Account",
+        [
+          {
+            title: "Select Account to Delete",
+            rows: accounts.map((acc, i) => ({
+              id: `delete_acc_${i}`,
+              title: acc.bankName,
+              description: `${acc.accountNumber} — ${acc.accountName}`,
+            })),
+          },
+        ],
+        "Delete Account 🗑️"
+      );
+      return;
+    }
 
-	// ── WALLET_ADD_ACCOUNT_NAME ───────────────────────────────────────────────
-	if (user.workflowState === STATES.WALLET_ADD_ACCOUNT_NAME) {
-		const accountName = message.trim();
-		const bankName = user.workflowData.get("newBankName");
-		const accountNumber = user.workflowData.get("newAccountNumber");
+    if (choice === "wallet_menu") {
+      user.workflowState = WorkflowState.WALLET_MENU;
+      await user.save();
+      await sendWalletMenu(phoneNumber);
+    }
+    return;
+  }
 
-		if (!user.savedBankAccounts) user.savedBankAccounts = [];
-		user.savedBankAccounts.push({ bankName, accountNumber, accountName });
-		user.workflowData.delete("newBankName");
-		user.workflowData.delete("newAccountNumber");
-		user.workflowState = STATES.WALLET_MENU;
-		await user.save();
+  if (user.workflowState === WorkflowState.WALLET_DELETE_ACCOUNT_SELECT) {
+    if (choice.startsWith("delete_acc_")) {
+      const index = parseInt(choice.replace("delete_acc_", ""), 10);
+      const accounts = user.savedBankAccounts ?? [];
+      if (index >= 0 && index < accounts.length) {
+        const [deleted] = accounts.splice(index, 1);
+        user.savedBankAccounts = accounts;
+        user.workflowState = WorkflowState.WALLET_MANAGE_ACCOUNTS;
+        await user.save();
+        await sendTextMessage(phoneNumber, `Successfully deleted: *${deleted.bankName}* (${deleted.accountNumber}) ✅`);
+        await handleWalletManageAccountsMenu(user);
+      }
+    }
+    return;
+  }
 
-		await sendTextMessage(
-			phoneNumber,
-			`✅ *Account Saved!*\n\n🏦 *Bank*: ${bankName}\n🔢 *Account*: ${accountNumber}\n👤 *Name*: ${accountName}`,
-		);
-		await sendWalletMenu(phoneNumber);
-		return;
-	}
-
-	// ── WALLET_CHANGE_SECURITY_PICK ──────────────────────────────────────────
-	if (user.workflowState === STATES.WALLET_CHANGE_SECURITY_PICK) {
-		if (choice.startsWith("sq_")) {
-			const index = parseInt(choice.replace("sq_", ""), 10);
-			if (isNaN(index) || index < 0 || index >= SECURITY_QUESTIONS.length) {
-				await sendTextMessage(phoneNumber, "Please select a valid question from the list.");
-				return;
-			}
-			const question = SECURITY_QUESTIONS[index];
-			user.workflowData.set("newSecurityQuestion", question);
-			user.workflowState = STATES.WALLET_CHANGE_SECURITY_ANSWER;
-			await user.save();
-			await sendTextMessage(
-				phoneNumber,
-				`Got it. Now enter your answer for:\n\n_"${question}"_`,
-			);
-		} else {
-			await sendTextMessage(phoneNumber, "Please select a question from the list above.");
-		}
-		return;
-	}
-
-	// ── WALLET_CHANGE_SECURITY_ANSWER ─────────────────────────────────────────
-	if (user.workflowState === STATES.WALLET_CHANGE_SECURITY_ANSWER) {
-		const answer = message.trim();
-		if (answer.length < 2) {
-			await sendTextMessage(phoneNumber, "The answer must be at least 2 characters. Please try again.");
-			return;
-		}
-		const question = user.workflowData.get("newSecurityQuestion");
-		const coreUserId = user.coreUserId || user.workflowData.get("coreUserId");
-		try {
-			const success = await backendService.setSecurityQuestion({
-				userIdentifier: coreUserId,
-				question,
-				answer,
-			});
-			if (!success) throw new Error("setSecurityQuestion returned false");
-			user.workflowData.delete("newSecurityQuestion");
-			user.workflowState = STATES.WALLET_MENU;
-			await user.save();
-			await sendTextMessage(
-				phoneNumber,
-				"✅ *Security question updated successfully!*\n\nYour new security question is active.",
-			);
-			await sendWalletMenu(phoneNumber);
-		} catch (err) {
-			logger.error("Error updating security question", { phoneNumber, err: err.message });
-			await sendTextMessage(
-				phoneNumber,
-				"❌ Failed to update security question. Please try again or type *Menu* to return.",
-			);
-		}
-		return;
-	}
-
-	// ── WALLET_MANAGE_ACCOUNTS ────────────────────────────────────────────────
-	if (user.workflowState === STATES.WALLET_MANAGE_ACCOUNTS) {
-		if (choice === "wallet_add_account") {
-			user.workflowState = STATES.WALLET_ADD_BANK_NAME;
-			await user.save();
-			await sendTextMessage(
-				phoneNumber,
-				"Please enter your *Bank Name* (e.g. Zenith Bank, GTBank):",
-			);
-			return;
-		}
-
-		if (choice === "wallet_delete_account") {
-			const accounts = user.savedBankAccounts || [];
-			if (accounts.length === 0) return;
-
-			const rows = accounts.map((acc, i) => ({
-				id: `delete_acc_${i}`,
-				title: acc.bankName,
-				description: `${acc.accountNumber} — ${acc.accountName}`,
-			}));
-
-			user.workflowState = STATES.WALLET_DELETE_ACCOUNT_SELECT;
-			await user.save();
-
-			await sendListMessage(
-				phoneNumber,
-				"Which account would you like to delete?",
-				"Select Account",
-				[{ title: "Select Account to Delete", rows }],
-				"Delete Account 🗑️",
-			);
-			return;
-		}
-
-		if (choice === "wallet_menu") {
-			user.workflowState = STATES.WALLET_MENU;
-			await user.save();
-			await sendWalletMenu(phoneNumber);
-			return;
-		}
-	}
-
-	// ── WALLET_DELETE_ACCOUNT_SELECT ──────────────────────────────────────────
-	if (user.workflowState === STATES.WALLET_DELETE_ACCOUNT_SELECT) {
-		if (choice.startsWith("delete_acc_")) {
-			const index = parseInt(choice.replace("delete_acc_", ""), 10);
-			const accounts = user.savedBankAccounts || [];
-
-			if (index >= 0 && index < accounts.length) {
-				const [deleted] = accounts.splice(index, 1);
-				user.savedBankAccounts = accounts;
-				user.workflowState = STATES.WALLET_MANAGE_ACCOUNTS;
-				await user.save();
-
-				await sendTextMessage(
-					phoneNumber,
-					`Successfully deleted: *${deleted.bankName}* (${deleted.accountNumber}) ✅`,
-				);
-
-				// Re-enter manage accounts view
-				await handleWalletManageAccountsMenu(user);
-			}
-			return;
-		}
-	}
-
-	// ── WALLET_MENU — action dispatch ─────────────────────────────────────────
-	if (user.workflowState === STATES.WALLET_MENU) {
-		if (choice === "wallet_balance" || choice === "1") {
-			await promptWalletSecurityVerification(user, "wallet_balance");
-			return;
-		}
-
-		if (choice === "wallet_deposit" || choice === "2") {
-			await promptWalletSecurityVerification(user, "wallet_deposit");
-			return;
-		}
-
-		if (choice === "wallet_manage_accounts") {
-			user.workflowState = STATES.WALLET_MANAGE_ACCOUNTS;
-			await user.save();
-			await handleWalletManageAccountsMenu(user);
-			return;
-		}
-
-		if (choice === "wallet_change_security") {
-			user.workflowState = STATES.WALLET_CHANGE_SECURITY_PICK;
-			await user.save();
-			await sendListMessage(
-				phoneNumber,
-				"🔑 *Change Security Question*\n\nSelect your new security question:",
-				"Select Question",
-				[{
-					title: "Security Questions",
-					rows: SECURITY_QUESTIONS.map((q, i) => ({
-						id: `sq_${i}`,
-						title: `${i + 1}. ${q.length > 60 ? q.slice(0, 57) + "..." : q}`,
-						description: q,
-					})),
-				}],
-				"Change Security Question 🔑",
-			);
-			return;
-		}
-
-		if (choice === "wallet_add_account" || choice === "3") {
-			user.workflowState = STATES.WALLET_ADD_BANK_NAME;
-			await user.save();
-			await sendTextMessage(
-				phoneNumber,
-				"Please enter your *Bank Name* (e.g. Zenith Bank, GTBank):",
-			);
-			return;
-		}
-
-		// Unknown input in wallet menu
-		await sendWalletMenu(phoneNumber);
-	}
+  if (user.workflowState === WorkflowState.WALLET_MENU) {
+    if (choice === "wallet_balance" || choice === "1") {
+      await promptWalletSecurityVerification(user, "wallet_balance");
+      return;
+    }
+    if (choice === "wallet_deposit" || choice === "2") {
+      await promptWalletSecurityVerification(user, "wallet_deposit");
+      return;
+    }
+    if (choice === "wallet_manage_accounts") {
+      user.workflowState = WorkflowState.WALLET_MANAGE_ACCOUNTS;
+      await user.save();
+      await handleWalletManageAccountsMenu(user);
+      return;
+    }
+    if (choice === "wallet_change_security") {
+      user.workflowState = WorkflowState.WALLET_CHANGE_SECURITY_PICK;
+      await user.save();
+      await sendListMessage(
+        phoneNumber,
+        "🔑 *Change Security Question*\n\nSelect your new security question:",
+        "Select Question",
+        [
+          {
+            title: "Security Questions",
+            rows: SECURITY_QUESTIONS.map((q, i) => ({
+              id: `sq_${i}`,
+              title: `${i + 1}. ${q.length > 60 ? q.slice(0, 57) + "..." : q}`,
+              description: q,
+            })),
+          },
+        ],
+        "Change Security Question 🔑"
+      );
+      return;
+    }
+    if (choice === "wallet_add_account" || choice === "3") {
+      user.workflowState = WorkflowState.WALLET_ADD_BANK_NAME;
+      await user.save();
+      await sendTextMessage(phoneNumber, "Please enter your *Bank Name* (e.g. Zenith Bank, GTBank):");
+      return;
+    }
+    await sendWalletMenu(phoneNumber);
+  }
 }
 
-/**
- * Asks the user to verify their security answer before accessing wallet data.
- */
-async function promptWalletSecurityVerification(user, pendingAction) {
-	user.workflowState = STATES.WALLET_VERIFY_SECURITY;
-	user.workflowData.set("walletPendingAction", pendingAction);
-	await user.save();
+async function promptWalletSecurityVerification(user: UserDoc, pendingAction: string): Promise<void> {
+  user.workflowState = WorkflowState.WALLET_VERIFY_SECURITY;
+  user.workflowData.set("walletPendingAction", pendingAction);
+  await user.save();
 
-	let prompt =
-		"🔐 *Security Verification*\n\nTo access your wallet, please answer your security question:";
+  let prompt = "🔐 *Security Verification*\n\nTo access your wallet, please answer your security question:";
+  try {
+    const securityInfo = await backendService.checkUserExists(user.phoneNumber);
+    if (securityInfo?.securityQuestion) {
+      prompt += `\n\n*"${securityInfo.securityQuestion}"*`;
+    } else {
+      prompt += "\n\n_(Enter the security answer you set during registration)_";
+    }
+  } catch (err) {
+    logger.error("Error fetching security question for wallet prompt", { error: (err as Error).message });
+    prompt += "\n\n_(Enter the security answer you set during registration)_";
+  }
 
-	try {
-		const securityInfo = await backendService.checkUserExists(user.phoneNumber);
-		if (securityInfo?.securityQuestion) {
-			prompt += `\n\n*"${securityInfo.securityQuestion}"*`;
-		} else {
-			prompt += "\n\n_(Enter the security answer you set during registration)_";
-		}
-	} catch (err) {
-		logger.error("Error fetching security question for wallet prompt", {
-			error: err.message,
-		});
-		prompt += "\n\n_(Enter the security answer you set during registration)_";
-	}
-
-	await sendTextMessage(user.phoneNumber, prompt);
+  await sendTextMessage(user.phoneNumber, prompt);
 }
 
-/**
- * Shows the manage accounts interactive menu depending on how many accounts are saved.
- */
-async function handleWalletManageAccountsMenu(user) {
-	const accounts = user.savedBankAccounts || [];
+async function handleWalletManageAccountsMenu(user: UserDoc): Promise<void> {
+  const accounts = user.savedBankAccounts ?? [];
 
-	if (accounts.length === 0) {
-		await sendInteractiveMessage(
-			user.phoneNumber,
-			"*Manage Bank Accounts* 🏦\n\nYou haven't saved any bank accounts yet.",
-			[
-				{ id: "wallet_add_account", title: "🏦 Add Account" },
-				{ id: "wallet_menu", title: "⬅️ Back" },
-			],
-		);
-		return;
-	}
+  if (!accounts.length) {
+    await sendInteractiveMessage(
+      user.phoneNumber,
+      "*Manage Bank Accounts* 🏦\n\nYou haven't saved any bank accounts yet.",
+      [
+        { id: "wallet_add_account", title: "🏦 Add Account" },
+        { id: "wallet_menu", title: "⬅️ Back" },
+      ]
+    );
+    return;
+  }
 
-	const accountsText =
-		"*Your Saved Bank Accounts* 🏦\n\n" +
-		accounts
-			.map(
-				(acc, i) =>
-					`*${i + 1}.* ${acc.bankName} — ${acc.accountNumber} (${acc.accountName})`,
-			)
-			.join("\n");
+  const accountsText =
+    "*Your Saved Bank Accounts* 🏦\n\n" +
+    accounts.map((acc, i) => `*${i + 1}.* ${acc.bankName} — ${acc.accountNumber} (${acc.accountName})`).join("\n");
 
-	await sendInteractiveMessage(user.phoneNumber, accountsText, [
-		{ id: "wallet_add_account", title: "➕ Add New" },
-		{ id: "wallet_delete_account", title: "🗑️ Delete Account" },
-		{ id: "wallet_menu", title: "⬅️ Back" },
-	]);
+  await sendInteractiveMessage(user.phoneNumber, accountsText, [
+    { id: "wallet_add_account", title: "➕ Add New" },
+    { id: "wallet_delete_account", title: "🗑️ Delete Account" },
+    { id: "wallet_menu", title: "⬅️ Back" },
+  ]);
+}
+
+// ─── Referral Withdrawal ──────────────────────────────────────────────────────
+
+async function handleWithdrawInitiation(user: UserDoc): Promise<void> {
+  const MIN_WITHDRAWAL = 2000;
+  const earnings = user.rewardsEarned ?? 0;
+
+  if (earnings < MIN_WITHDRAWAL) {
+    await sendTextMessage(
+      user.phoneNumber,
+      `*Insufficient Balance* ❌\n\nYou currently have *₦${earnings.toLocaleString()}* in referral rewards.\n\nThe minimum amount you can withdraw is *₦${MIN_WITHDRAWAL.toLocaleString()}*.\n\nKeep referring more people to earn more rewards! 🚀`
+    );
+    return;
+  }
+
+  const accounts = user.savedBankAccounts ?? [];
+  if (!accounts.length) {
+    await sendTextMessage(
+      user.phoneNumber,
+      `*No Bank Account Found* 🏦\n\nPlease add a bank account first to receive your rewards.\n\nGo to *Main Menu* > *3. Wallet* > *Manage Accounts* > *Add Account* to save your bank details, then try again.`
+    );
+    return;
+  }
+
+  user.workflowState = WorkflowState.REFERRAL_WITHDRAW_SELECT_BANK;
+  await user.save();
+
+  await sendListMessage(
+    user.phoneNumber,
+    `*Withdraw Referral Rewards* 💰\n\nYou are about to withdraw your total earnings of *₦${earnings.toLocaleString()}*.\n\nPlease select the bank account where you'd like to receive the funds:`,
+    "Select Bank",
+    [
+      {
+        title: "Your Saved Bank Accounts",
+        rows: accounts.map((acc, i) => ({
+          id: `withdraw_bank_${i}`,
+          title: acc.bankName,
+          description: `${acc.accountNumber} — ${acc.accountName}`,
+        })),
+      },
+    ],
+    "Select Bank 🏦"
+  );
+}
+
+async function handleReferralWithdrawFlow(user: UserDoc, message: string): Promise<void> {
+  const choice = message.trim().toLowerCase();
+  const { phoneNumber } = user;
+
+  if (choice === "menu" || choice === "back" || choice === "main menu") {
+    user.workflowState = WorkflowState.MAIN_MENU;
+    await user.save();
+    await sendWelcomeMenu(phoneNumber, user.name);
+    return;
+  }
+
+  if (user.workflowState === WorkflowState.REFERRAL_WITHDRAW_SELECT_BANK) {
+    if (choice.startsWith("withdraw_bank_")) {
+      const index = parseInt(choice.replace("withdraw_bank_", ""), 10);
+      const accounts = user.savedBankAccounts ?? [];
+
+      if (index >= 0 && index < accounts.length) {
+        const selectedBank = accounts[index];
+        user.workflowData.set("withdrawBankName", selectedBank.bankName);
+        user.workflowData.set("withdrawAccountNum", selectedBank.accountNumber);
+        user.workflowData.set("withdrawAccountName", selectedBank.accountName);
+        user.workflowState = WorkflowState.REFERRAL_WITHDRAW_CONFIRM;
+        await user.save();
+
+        await sendInteractiveMessage(
+          phoneNumber,
+          `*Confirm Withdrawal* ⚖️\n\n*Amount:* ₦${(user.rewardsEarned ?? 0).toLocaleString()}\n*To Bank:* ${selectedBank.bankName}\n*Account:* ${selectedBank.accountNumber}\n*Name:* ${selectedBank.accountName}\n\nProceed with this withdrawal?`,
+          [
+            { id: "confirm_withdraw_yes", title: "✅ Yes, Proceed" },
+            { id: "confirm_withdraw_no", title: "❌ Cancel" },
+          ]
+        );
+      }
+    }
+    return;
+  }
+
+  if (user.workflowState === WorkflowState.REFERRAL_WITHDRAW_CONFIRM) {
+    if (choice === "confirm_withdraw_yes") {
+      const amount = user.rewardsEarned ?? 0;
+      const bankName = user.workflowData.get("withdrawBankName") ?? "";
+      const accountNum = user.workflowData.get("withdrawAccountNum") ?? "";
+      const accountName = user.workflowData.get("withdrawAccountName") ?? "";
+
+      user.rewardsEarned = 0;
+      user.workflowState = WorkflowState.MAIN_MENU;
+      user.workflowData = new Map();
+      await user.save();
+
+      await sendTextMessage(
+        phoneNumber,
+        `✅ *Withdrawal Request Submitted*\n\nYour request for *₦${amount.toLocaleString()}* to be paid into your ${bankName} account has been received.\n\nOur team will process this shortly. You will be notified once the transfer is successful. 🥂`
+      );
+
+      logger.info("REFERRAL_WITHDRAWAL_REQUEST", { phoneNumber, amount, bankName, accountNum, accountName });
+      await sendWelcomeMenu(phoneNumber, user.name);
+      return;
+    }
+
+    if (choice === "confirm_withdraw_no") {
+      user.workflowState = WorkflowState.REFERRAL_MENU;
+      user.workflowData = new Map();
+      await user.save();
+      await handleReferralFlow(user, "start");
+    }
+  }
+}
+
+// ─── Emergency Transfer Flow ──────────────────────────────────────────────────
+
+async function handleEmergencyTransferFlow(user: UserDoc, message: string): Promise<void> {
+  const choice = message.trim();
+  const { phoneNumber } = user;
+  const normalized = choice.toLowerCase();
+
+  if (user.workflowState === WorkflowState.EMERGENCY_TRANSFER_CHOOSE_MODE) {
+    user.workflowData.set("isBulk", String(normalized === "bulk"));
+    user.workflowState = WorkflowState.EMERGENCY_TRANSFER_CHOOSE_EXECUTION;
+    await user.save();
+
+    await sendInteractiveMessage(
+      phoneNumber,
+      "How would you like this transfer to be processed?",
+      [
+        { id: "immediate", title: "Immediate (Now)" },
+        { id: "timed", title: "Timed (Delayed)" },
+      ],
+      "Select Option"
+    );
+    return;
+  }
+
+  if (user.workflowState === WorkflowState.EMERGENCY_TRANSFER_CHOOSE_EXECUTION) {
+    const isImmediate = normalized === "immediate";
+    user.workflowData.set("isImmediate", String(isImmediate));
+
+    if (isImmediate) {
+      user.workflowState = WorkflowState.EMERGENCY_TRANSFER_AMOUNT;
+      await user.save();
+      await sendTextMessage(phoneNumber, "Great! Enter the amount for this transfer (e.g. 20000):");
+    } else {
+      user.workflowState = WorkflowState.EMERGENCY_TRANSFER_DURATION;
+      await user.save();
+      await sendTextMessage(
+        phoneNumber,
+        "How long should the Personal Assistant have to approve this transfer? (Enter minutes, e.g. 5, 30, or 1440 for 1 day):"
+      );
+    }
+    return;
+  }
+
+  if (user.workflowState === WorkflowState.EMERGENCY_TRANSFER_DURATION) {
+    const minutes = parseInt(choice.replace(/\D/g, ""), 10);
+    if (Number.isNaN(minutes) || minutes <= 0) {
+      await sendTextMessage(phoneNumber, "Please enter a valid number of minutes.");
+      return;
+    }
+    user.workflowData.set("expiryMinutes", String(minutes));
+    user.workflowState = WorkflowState.EMERGENCY_TRANSFER_AMOUNT;
+    await user.save();
+    await sendTextMessage(phoneNumber, "Enter the amount for this transfer (e.g. 50000):");
+    return;
+  }
+
+  if (user.workflowState === WorkflowState.EMERGENCY_TRANSFER_AMOUNT) {
+    const amount = parseFloat(choice.replace(/[^0-9.]/g, ""));
+    if (Number.isNaN(amount) || amount <= 0) {
+      await sendTextMessage(phoneNumber, "Please enter a valid amount (e.g. 10000).");
+      return;
+    }
+    user.workflowData.set("temp_amount", String(amount));
+    user.workflowState = WorkflowState.EMERGENCY_TRANSFER_NARRATION;
+    await user.save();
+    await sendTextMessage(phoneNumber, "Provide a narration/reason (or reply *Skip*):");
+    return;
+  }
+
+  if (user.workflowState === WorkflowState.EMERGENCY_TRANSFER_NARRATION) {
+    const narration = normalized === "skip" ? "" : choice;
+    user.workflowData.set("temp_narration", narration);
+    user.workflowState = WorkflowState.EMERGENCY_TRANSFER_BANK_NAME;
+    await user.save();
+    await sendTextMessage(phoneNumber, "Enter the *Bank Name* (e.g. GTBank, Zenith):");
+    return;
+  }
+
+  if (user.workflowState === WorkflowState.EMERGENCY_TRANSFER_BANK_NAME) {
+    user.workflowData.set("temp_bankName", choice);
+    user.workflowState = WorkflowState.EMERGENCY_TRANSFER_ACCOUNT_NUMBER;
+    await user.save();
+    await sendTextMessage(phoneNumber, "Enter the *Account Number*:");
+    return;
+  }
+
+  if (user.workflowState === WorkflowState.EMERGENCY_TRANSFER_ACCOUNT_NUMBER) {
+    const acct = choice.replace(/\D/g, "");
+    if (acct.length < 10) {
+      await sendTextMessage(phoneNumber, "Please enter a valid 10-digit account number.");
+      return;
+    }
+    user.workflowData.set("temp_accountNumber", acct);
+    await sendTextMessage(phoneNumber, "Verifying account details... 🔍");
+
+    try {
+      const bankName = user.workflowData.get("temp_bankName") ?? "";
+      const resolution = await backendService.resolveAccount(
+        acct,
+        bankName,
+        "MOCK_SECURITY",
+        user.coreUserId ?? user.phoneNumber
+      );
+
+      if (resolution?.account_name) {
+        user.workflowData.set("temp_accountName", String(resolution.account_name));
+        user.workflowData.set("temp_bankCode", String(resolution.bank_code ?? ""));
+        user.workflowState = WorkflowState.EMERGENCY_TRANSFER_CONFIRM_RECIPIENT;
+        await user.save();
+
+        await sendInteractiveMessage(
+          phoneNumber,
+          `Account Verified: *${resolution.account_name}*\nBank: *${bankName}*\n\nIs this correct?`,
+          [
+            { id: "yes", title: "Yes, correct" },
+            { id: "no", title: "No, change" },
+          ],
+          "Confirm"
+        );
+      } else {
+        throw new Error("Could not resolve account");
+      }
+    } catch (err) {
+      logger.warn("Account resolution failed", { error: (err as Error).message });
+      user.workflowState = WorkflowState.EMERGENCY_TRANSFER_ACCOUNT_NAME;
+      await user.save();
+      await sendTextMessage(
+        phoneNumber,
+        "We couldn't verify the account automatically. Please enter the *Account Name* manually:"
+      );
+    }
+    return;
+  }
+
+  if (user.workflowState === WorkflowState.EMERGENCY_TRANSFER_ACCOUNT_NAME) {
+    user.workflowData.set("temp_accountName", choice);
+    await finishRecipientStep(user);
+    return;
+  }
+
+  if (user.workflowState === WorkflowState.EMERGENCY_TRANSFER_CONFIRM_RECIPIENT) {
+    if (normalized === "yes") {
+      await finishRecipientStep(user);
+    } else {
+      user.workflowState = WorkflowState.EMERGENCY_TRANSFER_BANK_NAME;
+      await user.save();
+      await sendTextMessage(phoneNumber, "Let's try again. Please enter the *Bank Name*:");
+    }
+    return;
+  }
+
+  if (user.workflowState === WorkflowState.EMERGENCY_TRANSFER_BULK_MORE) {
+    if (normalized === "add") {
+      user.workflowState = WorkflowState.EMERGENCY_TRANSFER_AMOUNT;
+      await user.save();
+      await sendTextMessage(phoneNumber, "Enter the amount for the next recipient:");
+    } else {
+      user.workflowState = WorkflowState.EMERGENCY_TRANSFER_VERIFY;
+      await user.save();
+      await askSecurity(user);
+    }
+    return;
+  }
+
+  if (user.workflowState === WorkflowState.EMERGENCY_TRANSFER_VERIFY) {
+    const securityAnswer = choice;
+    const isBulk = user.workflowData.get("isBulk") === "true";
+    const isImmediate = user.workflowData.get("isImmediate") === "true";
+    const expiryMinutesRaw = user.workflowData.get("expiryMinutes");
+
+    await sendTextMessage(phoneNumber, "Submitting your request... ⏳");
+
+    try {
+      let result: unknown;
+      if (isBulk) {
+        const recipients: TransferRecipient[] = JSON.parse(user.workflowData.get("recipients") ?? "[]");
+        result = await backendService.createBulkEmergencyTransfer({
+          recipients,
+          securityAnswer,
+          uniqueId: user.coreUserId ?? user.phoneNumber,
+          assignedPaId: user.assignedPaId,
+          immediate: isImmediate,
+          expiryMinutes: expiryMinutesRaw ? Number(expiryMinutesRaw) : undefined,
+        });
+      } else {
+        result = await backendService.createEmergencyTransfer({
+          securityAnswer,
+          amount: Number(user.workflowData.get("temp_amount")),
+          narration: user.workflowData.get("temp_narration") ?? "",
+          uniqueId: user.coreUserId ?? user.phoneNumber,
+          assignedPaId: user.assignedPaId,
+          immediate: isImmediate,
+          expiryMinutes: expiryMinutesRaw ? Number(expiryMinutesRaw) : undefined,
+          destinationAccount: {
+            bankName: user.workflowData.get("temp_bankName") ?? "",
+            bankCode: user.workflowData.get("temp_bankCode") ?? "",
+            accountNumber: user.workflowData.get("temp_accountNumber") ?? "",
+            accountName: user.workflowData.get("temp_accountName") ?? "",
+          },
+        });
+      }
+
+      if (result) {
+        user.emergencyTransferLockUntil = new Date(Date.now() + EMERGENCY_TRANSFER_LOCK_MINUTES * 60 * 1000);
+        const msg = isImmediate ? "✅ *Transfer(s) executed successfully!*" : "✅ *Request submitted successfully!*";
+        const subMsg = isImmediate
+          ? "Your funds are on the way."
+          : `PA will process this within ${expiryMinutesRaw ?? 60} minutes.`;
+        await sendTextMessage(
+          phoneNumber,
+          `${msg}\n\n${subMsg}\n\nFor security, this chat is locked for transactions for ${EMERGENCY_TRANSFER_LOCK_MINUTES} minutes.\n\nThank you for choosing LuxePass. 🥂`
+        );
+      } else {
+        throw new Error("Failed to process transfer");
+      }
+    } catch (err) {
+      const axiosError = err as { response?: { data?: { error?: { message?: string } } }; message?: string };
+      const errorMsg = axiosError?.response?.data?.error?.message ?? axiosError?.message ?? "Unknown error";
+      await sendTextMessage(
+        phoneNumber,
+        `❌ Transfer failed: ${errorMsg}\n\nPlease check your security answer or balance and try again.`
+      );
+    }
+
+    user.workflowState = WorkflowState.MAIN_MENU;
+    user.workflowData = new Map();
+    await user.save();
+    await sendWelcomeMenu(phoneNumber, user.name);
+  }
+}
+
+async function finishRecipientStep(user: UserDoc): Promise<void> {
+  const recipient: TransferRecipient = {
+    amount: Number(user.workflowData.get("temp_amount")),
+    narration: user.workflowData.get("temp_narration") ?? "",
+    destinationAccount: {
+      bankName: user.workflowData.get("temp_bankName") ?? "",
+      bankCode: user.workflowData.get("temp_bankCode") ?? "",
+      accountNumber: user.workflowData.get("temp_accountNumber") ?? "",
+      accountName: user.workflowData.get("temp_accountName") ?? "",
+    },
+  };
+
+  const isBulk = user.workflowData.get("isBulk") === "true";
+
+  if (isBulk) {
+    let recipients: TransferRecipient[] = [];
+    try {
+      recipients = JSON.parse(user.workflowData.get("recipients") ?? "[]");
+    } catch {
+      /* ignore */
+    }
+    recipients.push(recipient);
+    user.workflowData.set("recipients", JSON.stringify(recipients));
+    user.workflowState = WorkflowState.EMERGENCY_TRANSFER_BULK_MORE;
+    await user.save();
+
+    await sendInteractiveMessage(
+      user.phoneNumber,
+      `Recipient added: *${recipient.destinationAccount.accountName}* (₦${recipient.amount.toLocaleString()})\n\nWould you like to add another account or proceed to authorize?`,
+      [
+        { id: "add", title: "Add Another" },
+        { id: "finish", title: "Proceed" },
+      ],
+      "Select Option"
+    );
+  } else {
+    user.workflowState = WorkflowState.EMERGENCY_TRANSFER_VERIFY;
+    await user.save();
+    await askSecurity(user);
+  }
+}
+
+async function askSecurity(user: UserDoc): Promise<void> {
+  let prompt = "🔒 *Security Authorization*\n\nEnter your security answer to authorize this transfer:";
+  try {
+    const securityInfo = await backendService.checkUserExists(user.phoneNumber);
+    if (securityInfo?.securityQuestion) {
+      prompt += `\n\n*"${securityInfo.securityQuestion}"*`;
+    }
+  } catch {
+    /* ignore */
+  }
+  await sendTextMessage(user.phoneNumber, prompt);
 }
 
 // ─── PA Auto-Assign ───────────────────────────────────────────────────────────
 
-// ─── Referral Withdrawal Flow ──────────────────────────────────────────────────
+async function autoAssignPA(user: UserDoc): Promise<Record<string, unknown> | null> {
+  try {
+    const pas = (await backendService.getActivePAsForAssignment()) as Record<string, unknown>[] | null;
+    if (!pas?.length) {
+      logger.warn("No PAs available for assignment");
+      return null;
+    }
 
-/**
- * Initiates the withdrawal process for referral rewards.
- */
-async function handleWithdrawInitiation(user) {
-	const minWithdrawal = 2000;
-	const earnings = user.rewardsEarned || 0;
+    const conversations = (await Conversation.find({ assignedPaId: { $ne: null } })) as Record<string, unknown>[];
+    const paCounts = new Map<string, number>(pas.map((pa) => [String(pa.id), 0]));
+    for (const c of conversations) {
+      const paId = String(c.assignedPaId);
+      if (paCounts.has(paId)) paCounts.set(paId, (paCounts.get(paId) ?? 0) + 1);
+    }
 
-	if (earnings < minWithdrawal) {
-		await sendTextMessage(
-			user.phoneNumber,
-			`*Insufficient Balance* ❌\n\nYou currently have *₦${earnings.toLocaleString()}* in referral rewards.\n\nThe minimum amount you can withdraw is *₦${minWithdrawal.toLocaleString()}*.\n\nKeep referring more people to earn more rewards! 🚀`,
-		);
-		return;
-	}
+    const chosenPA = [...pas].sort((a, b) => (paCounts.get(String(a.id)) ?? 0) - (paCounts.get(String(b.id)) ?? 0))[0];
 
-	const accounts = user.savedBankAccounts || [];
-	if (accounts.length === 0) {
-		await sendTextMessage(
-			user.phoneNumber,
-			`*No Bank Account Found* 🏦\n\nPlease add a bank account first to receive your rewards.\n\nGo to *Main Menu* > *3. Wallet* > *Manage Accounts* > *Add Account* to save your bank details, then try again.`,
-		);
-		return;
-	}
+    if (user.coreUserId) {
+      await backendService.assignUserToPA(String(chosenPA.id), user.coreUserId);
+    }
 
-	// Show bank list
-	const rows = accounts.map((acc, i) => ({
-		id: `withdraw_bank_${i}`,
-		title: acc.bankName,
-		description: `${acc.accountNumber} — ${acc.accountName}`,
-	}));
+    user.assignedPaId = String(chosenPA.id);
+    await user.save();
 
-	user.workflowState = STATES.REFERRAL_WITHDRAW_SELECT_BANK;
-	await user.save();
+    const conversation = await getOrCreateConversation(user.phoneNumber, user.name);
+    conversation.assignedPaId = String(chosenPA.id);
+    await conversation.save();
 
-	await sendListMessage(
-		user.phoneNumber,
-		`*Withdraw Referral Rewards* 💰\n\nYou are about to withdraw your total earnings of *₦${earnings.toLocaleString()}*.\n\nPlease select the bank account where you'd like to receive the funds:`,
-		"Select Bank",
-		[{ title: "Your Saved Bank Accounts", rows }],
-		"Select Bank 🏦",
-	);
-}
+    logger.info("Auto-assigned user to PA", {
+      phoneNumber: user.phoneNumber,
+      paId: chosenPA.id,
+      paName: chosenPA.name,
+    });
 
-/**
- * Handles the selection and confirmation of withdrawal.
- */
-async function handleReferralWithdrawFlow(user, message) {
-	const choice = message.trim().toLowerCase();
-	const { phoneNumber } = user;
-
-	if (choice === "menu" || choice === "back" || choice === "main menu") {
-		user.workflowState = STATES.MAIN_MENU;
-		await user.save();
-		await sendWelcomeMenu(phoneNumber, user.name);
-		return;
-	}
-
-	if (user.workflowState === STATES.REFERRAL_WITHDRAW_SELECT_BANK) {
-		if (choice.startsWith("withdraw_bank_")) {
-			const index = parseInt(choice.replace("withdraw_bank_", ""), 10);
-			const accounts = user.savedBankAccounts || [];
-
-			if (index >= 0 && index < accounts.length) {
-				const selectedBank = accounts[index];
-				user.workflowData.set("withdrawBankName", selectedBank.bankName);
-				user.workflowData.set("withdrawAccountNum", selectedBank.accountNumber);
-				user.workflowData.set("withdrawAccountName", selectedBank.accountName);
-				user.workflowState = STATES.REFERRAL_WITHDRAW_CONFIRM;
-				await user.save();
-
-				await sendInteractiveMessage(
-					phoneNumber,
-					`*Confirm Withdrawal* ⚖️\n\n*Amount:* ₦${(user.rewardsEarned || 0).toLocaleString()}\n*To Bank:* ${selectedBank.bankName}\n*Account:* ${selectedBank.accountNumber}\n*Name:* ${selectedBank.accountName}\n\nProceed with this withdrawal?`,
-					[
-						{ id: "confirm_withdraw_yes", title: "✅ Yes, Proceed" },
-						{ id: "confirm_withdraw_no", title: "❌ Cancel" },
-					],
-				);
-			}
-			return;
-		}
-	}
-
-	if (user.workflowState === STATES.REFERRAL_WITHDRAW_CONFIRM) {
-		if (choice === "confirm_withdraw_yes") {
-			const amount = user.rewardsEarned || 0;
-			const bankName = user.workflowData.get("withdrawBankName");
-			const accountNum = user.workflowData.get("withdrawAccountNum");
-			const accountName = user.workflowData.get("withdrawAccountName");
-
-			// Deduct balance
-			user.rewardsEarned = 0;
-			user.workflowState = STATES.MAIN_MENU;
-			user.workflowData = new Map();
-			await user.save();
-
-			// Notify user
-			await sendTextMessage(
-				phoneNumber,
-				`✅ *Withdrawal Request Submitted*\n\nYour request for *₦${amount.toLocaleString()}* to be paid into your ${bankName} account has been received.\n\nOur team will process this shortly. You will be notified once the transfer is successful. 🥂`,
-			);
-
-			// Logic to notify admin/concierge could go here (e.g. log or another message)
-			logger.info("REFERRAL_WITHDRAWAL_REQUEST", {
-				phoneNumber,
-				amount,
-				bankName,
-				accountNum,
-				accountName,
-			});
-
-			await sendWelcomeMenu(phoneNumber, user.name);
-			return;
-		}
-
-		if (choice === "confirm_withdraw_no") {
-			user.workflowState = STATES.REFERRAL_MENU;
-			user.workflowData = new Map();
-			await user.save();
-			await handleReferralFlow(user, "start");
-			return;
-		}
-	}
-}
-
-// ─── Emergency Transfer Flow ────────────────────────────────────────────────
-
-async function handleEmergencyTransferFlow(user, message) {
-	const choice = message.trim();
-	const { phoneNumber } = user;
-	const normalizedChoice = choice.toLowerCase();
-
-	// ── Step 0a: ChooseMode (Single vs Bulk) ──────────────────────────────────
-	if (user.workflowState === STATES.EMERGENCY_TRANSFER_CHOOSE_MODE) {
-		const isBulk = normalizedChoice === "bulk";
-		user.workflowData.set("isBulk", isBulk);
-		user.workflowState = STATES.EMERGENCY_TRANSFER_CHOOSE_EXECUTION;
-		await user.save();
-
-		await sendInteractiveMessage(
-			phoneNumber,
-			"How would you like this transfer to be processed?",
-			[
-				{ id: "immediate", title: "Immediate (Now)" },
-				{ id: "timed", title: "Timed (Delayed)" },
-			],
-			"Select Option",
-		);
-		return;
-	}
-
-	// ── Step 0b: ChooseExecution (Immediate vs Timed) ───────────────────────
-	if (user.workflowState === STATES.EMERGENCY_TRANSFER_CHOOSE_EXECUTION) {
-		const isImmediate = normalizedChoice === "immediate";
-		user.workflowData.set("isImmediate", isImmediate);
-
-		if (isImmediate) {
-			user.workflowState = STATES.EMERGENCY_TRANSFER_AMOUNT;
-			await user.save();
-			await sendTextMessage(
-				phoneNumber,
-				"Great! Enter the amount for this transfer (e.g. 20000):",
-			);
-		} else {
-			user.workflowState = STATES.EMERGENCY_TRANSFER_DURATION;
-			await user.save();
-			await sendTextMessage(
-				phoneNumber,
-				"How long should the Personal Assistant have to approve this transfer? (Enter minutes, e.g. 5, 30, or 1440 for 1 day):",
-			);
-		}
-		return;
-	}
-
-	// ── Step 0c: Duration (if Timed) ──────────────────────────────────────────
-	if (user.workflowState === STATES.EMERGENCY_TRANSFER_DURATION) {
-		const minutes = parseInt(choice.replace(/\D/g, ""), 10);
-		if (isNaN(minutes) || minutes <= 0) {
-			await sendTextMessage(phoneNumber, "Please enter a valid number of minutes.");
-			return;
-		}
-		user.workflowData.set("expiryMinutes", String(minutes));
-		user.workflowState = STATES.EMERGENCY_TRANSFER_AMOUNT;
-		await user.save();
-		await sendTextMessage(phoneNumber, "Enter the amount for this transfer (e.g. 50000):");
-		return;
-	}
-
-	// ── Step 1: Amount ────────────────────────────────────────────────────────
-	if (user.workflowState === STATES.EMERGENCY_TRANSFER_AMOUNT) {
-		const amount = parseFloat(choice.replace(/[^0-9.]/g, ""));
-		if (isNaN(amount) || amount <= 0) {
-			await sendTextMessage(phoneNumber, "Please enter a valid amount (e.g. 10000).");
-			return;
-		}
-		user.workflowData.set("temp_amount", String(amount));
-		user.workflowState = STATES.EMERGENCY_TRANSFER_NARRATION;
-		await user.save();
-		await sendTextMessage(phoneNumber, "Provide a narration/reason (or reply *Skip*):");
-		return;
-	}
-
-	// ── Step 2: Narration ─────────────────────────────────────────────────────
-	if (user.workflowState === STATES.EMERGENCY_TRANSFER_NARRATION) {
-		const narration = normalizedChoice === "skip" ? "" : choice;
-		user.workflowData.set("temp_narration", narration);
-		user.workflowState = STATES.EMERGENCY_TRANSFER_BANK_NAME;
-		await user.save();
-		await sendTextMessage(phoneNumber, "Enter the *Bank Name* (e.g. GTBank, Zenith):");
-		return;
-	}
-
-	// ── Step 3: Bank Name / Code ──────────────────────────────────────────────
-	if (user.workflowState === STATES.EMERGENCY_TRANSFER_BANK_NAME) {
-		user.workflowData.set("temp_bankName", choice);
-		user.workflowState = STATES.EMERGENCY_TRANSFER_ACCOUNT_NUMBER;
-		await user.save();
-		await sendTextMessage(phoneNumber, "Enter the *Account Number*:");
-		return;
-	}
-
-	// ── Step 4: Account Number & Resolution ──────────────────────────────────
-	if (user.workflowState === STATES.EMERGENCY_TRANSFER_ACCOUNT_NUMBER) {
-		const acct = choice.replace(/\D/g, "");
-		if (acct.length < 10) {
-			await sendTextMessage(phoneNumber, "Please enter a valid 10-digit account number.");
-			return;
-		}
-		user.workflowData.set("temp_accountNumber", acct);
-		
-		await sendTextMessage(phoneNumber, "Verifying account details... 🔍");
-
-		try {
-			// Resolve account via backend (Scenario A/C requirement: confirm credentials)
-			const bankName = user.workflowData.get("temp_bankName");
-			const resolution = await backendService.resolveAccount(acct, bankName, "MOCK_SECURITY", user.coreUserId || user.phoneNumber);
-			
-			if (resolution && resolution.account_name) {
-				user.workflowData.set("temp_accountName", resolution.account_name);
-				user.workflowData.set("temp_bankCode", resolution.bank_code || "");
-				user.workflowState = STATES.EMERGENCY_TRANSFER_CONFIRM_RECIPIENT;
-				await user.save();
-
-				await sendInteractiveMessage(
-					phoneNumber,
-					`Account Verified: *${resolution.account_name}*\nBank: *${bankName}*\n\nIs this correct?`,
-					[
-						{ id: "yes", title: "Yes, correct" },
-						{ id: "no", title: "No, change" },
-					],
-					"Confirm",
-				);
-			} else {
-				throw new Error("Could not resolve account");
-			}
-		} catch (err) {
-			logger.warn("Account resolution failed", { err: err.message });
-			// Fallback: ask for manual name
-			user.workflowState = STATES.EMERGENCY_TRANSFER_ACCOUNT_NAME;
-			await user.save();
-			await sendTextMessage(phoneNumber, "We couldn't verify the account automatically. Please enter the *Account Name* manually:");
-		}
-		return;
-	}
-
-	// ── Step 5: Account Name (Manual fallback) ─────────────────────────────────
-	if (user.workflowState === STATES.EMERGENCY_TRANSFER_ACCOUNT_NAME) {
-		user.workflowData.set("temp_accountName", choice);
-		await finishRecipientStep(user);
-		return;
-	}
-
-	// ── Step 6: Confirm Recipient ──────────────────────────────────────────────
-	if (user.workflowState === STATES.EMERGENCY_TRANSFER_CONFIRM_RECIPIENT) {
-		if (normalizedChoice === "yes") {
-			await finishRecipientStep(user);
-		} else {
-			user.workflowState = STATES.EMERGENCY_TRANSFER_BANK_NAME;
-			await user.save();
-			await sendTextMessage(phoneNumber, "Let's try again. Please enter the *Bank Name*:");
-		}
-		return;
-	}
-
-	// ── Step 7: Bulk More? ────────────────────────────────────────────────────
-	if (user.workflowState === STATES.EMERGENCY_TRANSFER_BULK_MORE) {
-		if (normalizedChoice === "add") {
-			user.workflowState = STATES.EMERGENCY_TRANSFER_AMOUNT;
-			await user.save();
-			await sendTextMessage(phoneNumber, "Enter the amount for the next recipient:");
-		} else {
-			user.workflowState = STATES.EMERGENCY_TRANSFER_VERIFY;
-			await user.save();
-			await askSecurity(user);
-		}
-		return;
-	}
-
-	// ── Step 8: Final Verify & Submit ─────────────────────────────────────────
-	if (user.workflowState === STATES.EMERGENCY_TRANSFER_VERIFY) {
-		const securityAnswer = choice;
-		const isBulk = user.workflowData.get("isBulk") === "true" || user.workflowData.get("isBulk") === true;
-		const isImmediate = user.workflowData.get("isImmediate") === "true" || user.workflowData.get("isImmediate") === true;
-		const expiryMinutes = user.workflowData.get("expiryMinutes");
-
-		await sendTextMessage(phoneNumber, "Submitting your request... ⏳");
-
-		try {
-			let result;
-			if (isBulk) {
-				const recipients = JSON.parse(user.workflowData.get("recipients") || "[]");
-				result = await backendService.createBulkEmergencyTransfer({
-					recipients,
-					securityAnswer,
-					uniqueId: user.coreUserId || user.phoneNumber,
-					assignedPaId: user.assignedPaId,
-					immediate: isImmediate,
-					expiryMinutes: expiryMinutes ? Number(expiryMinutes) : undefined,
-				});
-			} else {
-				result = await backendService.createEmergencyTransfer({
-					securityAnswer,
-					amount: Number(user.workflowData.get("temp_amount")),
-					narration: user.workflowData.get("temp_narration"),
-					uniqueId: user.coreUserId || user.phoneNumber,
-					assignedPaId: user.assignedPaId,
-					immediate: isImmediate,
-					expiryMinutes: expiryMinutes ? Number(expiryMinutes) : undefined,
-					destinationAccount: {
-						bankName: user.workflowData.get("temp_bankName"),
-						bankCode: user.workflowData.get("temp_bankCode"),
-						accountNumber: user.workflowData.get("temp_accountNumber"),
-						accountName: user.workflowData.get("temp_accountName"),
-					},
-				});
-			}
-
-			if (result) {
-				user.emergencyTransferLockUntil = new Date(
-					Date.now() + EMERGENCY_TRANSFER_LOCK_MINUTES * 60 * 1000,
-				);
-				const msg = isImmediate ? "✅ *Transfer(s) executed successfully!*" : "✅ *Request submitted successfully!*";
-				const subMsg = isImmediate ? "Your funds are on the way." : `PA will process this within ${expiryMinutes || 60} minutes.`;
-				const lockMsg = `For security, this chat is locked for transactions for ${EMERGENCY_TRANSFER_LOCK_MINUTES} minutes.`;
-				await sendTextMessage(phoneNumber, `${msg}\n\n${subMsg}\n\n${lockMsg}\n\nThank you for choosing LuxePass. 🥂`);
-			} else {
-				throw new Error("Failed to process transfer");
-			}
-		} catch (err) {
-			const errorMsg = err.response?.data?.error?.message || err.message;
-			await sendTextMessage(phoneNumber, `❌ Transfer failed: ${errorMsg}\n\nPlease check your security answer or balance and try again.`);
-		}
-
-		user.workflowState = STATES.MAIN_MENU;
-		user.workflowData = new Map();
-		await user.save();
-		await sendWelcomeMenu(phoneNumber, user.name);
-	}
-}
-
-/**
- * Helper to finish a recipient entry and decide next step.
- */
-async function finishRecipientStep(user) {
-	const amount = Number(user.workflowData.get("temp_amount"));
-	const narration = user.workflowData.get("temp_narration");
-	const bankName = user.workflowData.get("temp_bankName");
-	const bankCode = user.workflowData.get("temp_bankCode");
-	const accountNumber = user.workflowData.get("temp_accountNumber");
-	const accountName = user.workflowData.get("temp_accountName");
-
-	const isBulk = user.workflowData.get("isBulk") === "true" || user.workflowData.get("isBulk") === true;
-
-	const recipient = {
-		amount,
-		narration,
-		destinationAccount: { bankName, bankCode, accountNumber, accountName },
-	};
-
-	if (isBulk) {
-		const recipients = JSON.parse(user.workflowData.get("recipients") || "[]");
-		recipients.push(recipient);
-		user.workflowData.set("recipients", JSON.stringify(recipients));
-		user.workflowState = STATES.EMERGENCY_TRANSFER_BULK_MORE;
-		await user.save();
-
-		await sendInteractiveMessage(
-			user.phoneNumber,
-			`Recipient added: *${accountName}* (₦${amount.toLocaleString()})\n\nWould you like to add another account or proceed to authorize?`,
-			[
-				{ id: "add", title: "Add Another" },
-				{ id: "finish", title: "Proceed" },
-			],
-			"Select Option",
-		);
-	} else {
-		user.workflowState = STATES.EMERGENCY_TRANSFER_VERIFY;
-		await user.save();
-		await askSecurity(user);
-	}
-}
-
-/**
- * Helper to ask for security answer.
- */
-async function askSecurity(user) {
-	let prompt = "🔒 *Security Authorization*\n\nEnter your security answer to authorize this transfer:";
-	try {
-		const securityInfo = await backendService.checkUserExists(user.phoneNumber);
-		if (securityInfo?.securityQuestion) {
-			prompt += `\n\n*"${securityInfo.securityQuestion}"*`;
-		}
-	} catch (err) {}
-	await sendTextMessage(user.phoneNumber, prompt);
-}
-
-async function autoAssignPA(user) {
-	try {
-		const pas = await backendService.getActivePAsForAssignment();
-		if (!pas || pas.length === 0) {
-			logger.warn("No PAs available for assignment");
-			return null;
-		}
-
-		// Balance load: count current assignments
-		const conversations = await Conversation.find({
-			assignedPaId: { $ne: null },
-		});
-		const paCounts = Object.fromEntries(pas.map((pa) => [pa.id, 0]));
-		for (const c of conversations) {
-			if (paCounts[c.assignedPaId] !== undefined) paCounts[c.assignedPaId]++;
-		}
-
-		const chosenPA = [...pas].sort(
-			(a, b) => (paCounts[a.id] || 0) - (paCounts[b.id] || 0),
-		)[0];
-
-		// Assign in core backend if we have a coreUserId
-		if (user.coreUserId) {
-			await backendService.assignUserToPA(chosenPA.id, user.coreUserId);
-		}
-
-		user.assignedPaId = chosenPA.id;
-		await user.save();
-
-		// Ensure conversation exists and set assignedPaId (so this PA sees it in their list)
-		const { getOrCreateConversation } =
-			await import("../utils/messageStorage.ts");
-		const conversation = await getOrCreateConversation(
-			user.phoneNumber,
-			user.name,
-		);
-		conversation.assignedPaId = chosenPA.id;
-		await conversation.save();
-
-		logger.info("Auto-assigned user to PA", {
-			phoneNumber: user.phoneNumber,
-			paId: chosenPA.id,
-			paName: chosenPA.name,
-		});
-
-		return chosenPA;
-	} catch (err) {
-		logger.error("Error in autoAssignPA", { error: err.message });
-		return null;
-	}
+    return chosenPA;
+  } catch (err) {
+    logger.error("Error in autoAssignPA", { error: (err as Error).message });
+    return null;
+  }
 }
 
