@@ -550,6 +550,43 @@ export async function handleWorkflow(from, message, name) {
 				rawLength: String(message ?? "").length,
 			});
 		}
+
+		const isSignupCommand =
+			normalizedMsg === "new account" ||
+			normalizedMsg === "sign up" ||
+			normalizedMsg === "signup" ||
+			normalizedMsg === "register" ||
+			normalizedMsg === "create account" ||
+			normalizedMsg === "start over";
+
+		if (isSignupCommand) {
+			user.workflowData = new Map();
+			user.isLiveChatActive = false;
+			user.assignedPaId = undefined;
+			user.workflowState = user.name
+				? STATES.ONBOARDING_EMAIL
+				: STATES.ONBOARDING_NAME;
+			await user.save();
+
+			await sendTextMessage(
+				phoneNumber,
+				"Sure! Let's start your LuxePass sign-up again.",
+			);
+
+			if (user.workflowState === STATES.ONBOARDING_NAME) {
+				await sendTextMessage(
+					phoneNumber,
+					"Welcome to LuxePass! 👋\n\nPlease enter your name to begin:",
+				);
+			} else {
+				await sendTextMessage(
+					phoneNumber,
+					"Great! Please provide your email address for account registration:",
+				);
+			}
+			return;
+		}
+
 		const isMenuCommand =
 			normalizedMsg === "menu" ||
 			normalizedMsg === "main menu" ||
