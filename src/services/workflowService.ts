@@ -557,7 +557,9 @@ export async function handleWorkflow(from, message, name) {
 			normalizedMsg === "signup" ||
 			normalizedMsg === "register" ||
 			normalizedMsg === "create account" ||
-			normalizedMsg === "start over";
+			normalizedMsg === "start over" ||
+			normalizedMsg === "reset" ||
+			normalizedMsg === "restart";
 
 		if (isSignupCommand) {
 			user.workflowData = new Map();
@@ -1543,6 +1545,82 @@ async function handleReferralFlow(user, message) {
 export async function handleWalletFlow(user, message) {
 	const choice = message.trim().toLowerCase();
 	const { phoneNumber } = user;
+
+	const isSignupCommand =
+		choice === "new account" ||
+		choice === "sign up" ||
+		choice === "signup" ||
+		choice === "register" ||
+		choice === "create account" ||
+		choice === "start over" ||
+		choice === "reset" ||
+		choice === "restart";
+
+	if (isSignupCommand) {
+		user.workflowData = new Map();
+		user.isLiveChatActive = false;
+		user.assignedPaId = undefined;
+		user.workflowState = user.name
+			? STATES.ONBOARDING_EMAIL
+			: STATES.ONBOARDING_NAME;
+		await user.save();
+
+		await sendTextMessage(
+			phoneNumber,
+			"Sure! Let's start your LuxePass sign-up again.",
+		);
+
+		if (user.workflowState === STATES.ONBOARDING_NAME) {
+			await sendTextMessage(
+				phoneNumber,
+				"Welcome to LuxePass! 👋\n\nPlease enter your name to begin:",
+			);
+		} else {
+			await sendTextMessage(
+				phoneNumber,
+				"Great! Please provide your email address for account registration:",
+			);
+		}
+		return;
+	}
+
+	const isWalletResetCommand =
+		choice === "new account" ||
+		choice === "sign up" ||
+		choice === "signup" ||
+		choice === "register" ||
+		choice === "create account" ||
+		choice === "start over" ||
+		choice === "reset" ||
+		choice === "restart";
+
+	if (isWalletResetCommand) {
+		user.workflowData = new Map();
+		user.isLiveChatActive = false;
+		user.assignedPaId = undefined;
+		user.workflowState = user.name
+			? STATES.ONBOARDING_EMAIL
+			: STATES.ONBOARDING_NAME;
+		await user.save();
+
+		await sendTextMessage(
+			phoneNumber,
+			"Sure! Let's start your LuxePass sign-up again.",
+		);
+
+		if (user.workflowState === STATES.ONBOARDING_NAME) {
+			await sendTextMessage(
+				phoneNumber,
+				"Welcome to LuxePass! 👋\n\nPlease enter your name to begin:",
+			);
+		} else {
+			await sendTextMessage(
+				phoneNumber,
+				"Great! Please provide your email address for account registration:",
+			);
+		}
+		return;
+	}
 
 	// Global back command — always escape to main menu
 	if (choice === "menu" || choice === "back" || choice === "main menu") {
