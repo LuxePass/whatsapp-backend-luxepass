@@ -328,7 +328,10 @@ export async function createBooking(bookingData) {
  * @param {string} answer
  * @returns {Promise<string|null>} token
  */
-export async function verifySecurityAnswer(identifier, answer) {
+export async function verifySecurityAnswer(
+	identifier,
+	answer,
+): Promise<{ token: string | null; httpStatus: number }> {
 	try {
 		const response = await withRetry(
 			() =>
@@ -338,13 +341,15 @@ export async function verifySecurityAnswer(identifier, answer) {
 				}),
 			{ retries: 2, label: "verifySecurityAnswer" },
 		);
-		return response.data.success ? response.data.data.token : null;
+		const token = response.data.success ? response.data.data.token : null;
+		return { token, httpStatus: 200 };
 	} catch (err) {
+		const httpStatus = err.response?.status ?? 500;
 		logger.error("[backendService] verifySecurityAnswer failed", {
-			status: err.response?.status,
+			status: httpStatus,
 			message: err.response?.data?.error?.message ?? err.message,
 		});
-		return null;
+		return { token: null, httpStatus };
 	}
 }
 

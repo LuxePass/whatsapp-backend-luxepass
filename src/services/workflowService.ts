@@ -277,7 +277,8 @@ export function normalizeMessage(raw: string): string {
 
 export function isMenuCommand(normalized: string, state: WorkflowStateKey): boolean {
   if (MENU_WORDS.has(normalized)) return true;
-  if ((normalized === "hi" || normalized === "hello") && state === WorkflowState.MAIN_MENU) return true;
+  // Treat greetings as a menu command in any non-onboarding state
+  if ((normalized === "hi" || normalized === "hello") && !ONBOARDING_STATES.has(state as WorkflowStateKey)) return true;
   return false;
 }
 
@@ -1370,12 +1371,21 @@ export async function handleWalletFlow(user: UserDoc, message: string): Promise<
     const identifier = coreUserId ?? user.phoneNumber;
 
     try {
-      const token = await backendService.verifySecurityAnswer(identifier, securityAnswer);
+      const { token, httpStatus } = await backendService.verifySecurityAnswer(identifier, securityAnswer);
       if (!token) {
-        await sendTextMessage(
-          phoneNumber,
-          "Incorrect security answer. ❌\n\nPlease try again or type *Menu* to return."
-        );
+        let errMsg: string;
+        if (httpStatus === 404) {
+          errMsg =
+            "❌ We couldn't find a security question for your account.\n\n" +
+            "Please go to *Wallet → Change Security Q* to set one, then try again.";
+        } else if (httpStatus === 400) {
+          errMsg =
+            "⛔ Too many incorrect attempts.\n\n" +
+            "For your security, wallet access is temporarily locked. Please wait 15 minutes and try again.";
+        } else {
+          errMsg = "❌ Incorrect security answer. Please try again or type *Menu* to go back.";
+        }
+        await sendTextMessage(phoneNumber, errMsg);
         return;
       }
 
