@@ -5,6 +5,7 @@
 	"type": "module",
 	"main": "server.ts",
 	"scripts": {
+		"build": "prisma generate",
 		"start": "tsx server.ts",
 		"dev": "tsx watch server.ts",
 		"typecheck": "tsc --noEmit",
