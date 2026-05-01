@@ -198,21 +198,26 @@ async function sendWalletMenu(to: string): Promise<void> {
     "Select Option",
     [
       {
-        title: "Wallet Options",
+        title: "Wallet",
         rows: [
           { id: "wallet_balance", title: "💰 Balance", description: "Check your current balance" },
           { id: "wallet_deposit", title: "📥 Deposit", description: "View fund account details" },
+          {
+            id: "wallet_change_security",
+            title: "🔒 Change Security Q",
+            description: "Update your security question and answer",
+          },
+        ],
+      },
+      {
+        title: "Account",
+        rows: [
           {
             id: "wallet_manage_accounts",
             title: "🏦 Manage Accounts",
             description: "View or delete saved bank accounts",
           },
-          {
-            id: "wallet_change_security",
-            title: "🔑 Change Security Q",
-            description: "Update your security question & answer",
-          },
-          { id: "menu", title: "⬅️ Back", description: "Return to main menu" },
+          { id: "menu", title: "Back to Main Menu", description: "Return to main menu" },
         ],
       },
     ],
@@ -1591,7 +1596,7 @@ export async function handleWalletFlow(user: UserDoc, message: string): Promise<
       await handleWalletManageAccountsMenu(user);
       return;
     }
-    if (choice === "wallet_change_security") {
+    if (choice === "wallet_change_security" || choice === "change security" || choice === "change security q" || choice === "security q" || choice === "security question") {
       user.workflowState = WorkflowState.WALLET_CHANGE_SECURITY_PICK;
       await user.save();
       await sendListMessage(
