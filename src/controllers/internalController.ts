@@ -1,22 +1,16 @@
+import type { Context } from "hono";
 import { sendTextMessage } from "../services/whatsappService.ts";
 import logger from "../config/logger.ts";
 
-/**
- * POST /api/internal/payment-confirmed
- *
- * Called by the core backend after Paystack confirms a wallet funding (charge.success).
- * Sends a WhatsApp message to the user so they know their wallet has been credited.
- *
- * Protected by requireInternalSecret middleware.
- */
-export async function handlePaymentConfirmed(req, res) {
-	const { phone, amount, currency = "NGN" } = req.body;
+export async function handlePaymentConfirmed(c: Context): Promise<Response> {
+	const { phone, amount, currency = "NGN" } = await c.req.json() as {
+		phone: string;
+		amount: number;
+		currency?: string;
+	};
 
 	if (!phone || amount == null) {
-		return res.status(400).json({
-			success: false,
-			error: { message: "phone and amount are required" },
-		});
+		return c.json({ success: false, error: { message: "phone and amount are required" } }, 400);
 	}
 
 	const symbol = currency === "USD" ? "$" : "₦";
@@ -34,33 +28,29 @@ export async function handlePaymentConfirmed(req, res) {
 			amount,
 		});
 
-		res.status(200).json({ success: true });
+		return c.json({ success: true }, 200);
 	} catch (err) {
 		logger.error(
 			"[internalController] Failed to send WhatsApp wallet funded notification",
-			{ phone: normalizedPhone, err: err.message },
+			{ phone: normalizedPhone, err: (err as Error).message },
 		);
-		// Return 200 so core backend doesn't retry — message send is best-effort
-		res.status(200).json({ success: false, error: "WhatsApp send failed" });
+		return c.json({ success: false, error: "WhatsApp send failed" }, 200);
 	}
 }
 
-/**
- * POST /api/internal/transfer-confirmed
- *
- * Called by the core backend after an emergency transfer is approved and processed.
- * Sends a WhatsApp notification to the user with the transfer result.
- *
- * Protected by requireInternalSecret middleware.
- */
-export async function handleTransferConfirmed(req, res) {
-	const { phone, amount, status, bankName, accountNumber, narration } = req.body;
+export async function handleTransferConfirmed(c: Context): Promise<Response> {
+	const { phone, amount, status, bankName, accountNumber, narration } =
+		await c.req.json() as {
+			phone: string;
+			amount?: number;
+			status: string;
+			bankName?: string;
+			accountNumber?: string;
+			narration?: string;
+		};
 
 	if (!phone || !status) {
-		return res.status(400).json({
-			success: false,
-			error: { message: "phone and status are required" },
-		});
+		return c.json({ success: false, error: { message: "phone and status are required" } }, 400);
 	}
 
 	const normalizedPhone = String(phone).replace(/\D/g, "");
@@ -90,12 +80,14 @@ export async function handleTransferConfirmed(req, res) {
 			status,
 		});
 
-		res.status(200).json({ success: true });
+		return c.json({ success: true }, 200);
 	} catch (err) {
 		logger.error("[internalController] Failed to send transfer notification", {
 			phone: normalizedPhone,
-			err: err.message,
+			err: (err as Error).message,
 		});
-		res.status(200).json({ success: false, error: "WhatsApp send failed" });
+		return c.json({ success: false, error: "WhatsApp send failed" }, 200);
 	}
 }
+
+

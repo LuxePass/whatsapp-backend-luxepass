@@ -1,14 +1,10 @@
-import express from "express";
-import cors from "cors";
-import helmet from "helmet";
+import { Hono } from 'hono';
+import { cors } from 'hono/cors';
+import { secureHeaders } from 'hono/secure-headers';
+import { serve } from '@hono/node-server';
 import config from "./src/config/env.ts";
 import logger from "./src/config/logger.ts";
 import { requestLogger } from "./src/middlewares/requestLogger.ts";
-import {
-	errorHandler,
-	notFoundHandler,
-} from "./src/middlewares/errorHandler.ts";
-import { rawBodyMiddleware } from "./src/middlewares/rawBody.ts";
 
 // Import routes
 import webhookRoutes from "./src/routes/webhookRoutes.ts";
@@ -21,55 +17,77 @@ import marketingRoutes from "./src/routes/marketingRoutes.ts";
 import internalRoutes from "./src/routes/internalRoutes.ts";
 import { connectDB } from "./src/config/database.ts";
 
-const app = express();
-
 // Middleware
-app.use(helmet());
+const app = new Hono();
+
+app.use('*', secureHeaders());
 app.use(
-	cors({
-		origin:
-			config.server.allowedOrigins.includes("*") ?
-				true
-			:	config.server.allowedOrigins,
-		credentials: true,
-		methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-		allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
-	}),
+  '*',
+  cors({
+    origin: config.server.allowedOrigins.includes('*') ? '*' : config.server.allowedOrigins,
+    credentials: true,
+    allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+    allowHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'x-whatsapp-backend-secret'],
+  }),
 );
-app.use(requestLogger);
+app.use('*', requestLogger);
 
 // API routes
-app.use(
-	express.json({
-		limit: "10mb",
-		verify: (req, res, buf) => {
-			req.rawBody = buf;
+app.route('/webhook', webhookRoutes);
+app.route('/api/messages', messageRoutes);
+app.route('/api/conversations', conversationRoutes);
+app.route('/api/livechat', liveChatRoutes);
+app.route('/api/referrals', referralRoutes);
+app.route('/api/users', userRoutes);
+app.route('/api/marketing', marketingRoutes);
+app.route('/api/internal', internalRoutes);
+
+app.get('/health', (c) => {
+	return c.json({
+		success: true,
+		status: 'ok',
+		environment: config.server.nodeEnv,
+	});
+});
+
+app.notFound((c) => {
+	return c.json(
+		{
+			success: false,
+			error: `Route not found: ${c.req.method} ${c.req.path}`,
 		},
-	}),
-);
-app.use(express.urlencoded({ extended: true, limit: "10mb" }));
-app.use("/webhook", webhookRoutes);
-app.use("/api/messages", messageRoutes);
-app.use("/api/conversations", conversationRoutes);
-app.use("/api/livechat", liveChatRoutes);
-app.use("/api/referrals", referralRoutes);
-app.use("/api/users", userRoutes);
-app.use("/api/marketing", marketingRoutes);
-app.use("/api/internal", internalRoutes);
+		404,
+	);
+});
 
-// 404 handler
-app.use(notFoundHandler);
+app.onError((err, c) => {
+	logger.error('Unhandled error', {
+		error: err.message,
+		stack: err.stack,
+		path: c.req.path,
+		method: c.req.method,
+	});
 
-// Error handler (must be last)
-app.use(errorHandler);
+	const message =
+		process.env.NODE_ENV === 'production' ? 'Internal server error' : err.message;
+
+	return c.json(
+		{
+			success: false,
+			error: message,
+			...(process.env.NODE_ENV !== 'production' && { stack: err.stack }),
+		},
+		500,
+	);
+});
 
 // Graceful shutdown
-let server;
+let server: { close: (cb?: () => void) => void } | null = null;
 
 function gracefulShutdown(signal) {
 	logger.info(`${signal} received, starting graceful shutdown...`);
 
-	server.close(() => {
+	server?.close(() => {
 		logger.info("HTTP server closed");
 		process.exit(0);
 	});
@@ -94,7 +112,12 @@ const startServer = async () => {
 		await connectDB();
 		logger.info("Persistence layer ready");
 
-		server = app.listen(PORT, () => {
+		server = serve(
+      {
+        fetch: app.fetch,
+        port: PORT,
+      },
+      () => {
 			const baseUrl =
 				process.env.APP_URL ||
 				(process.env.RAILWAY_PUBLIC_DOMAIN
@@ -107,7 +130,8 @@ const startServer = async () => {
 			logger.info(`🌐 Health check: ${baseUrl}/health`);
 			logger.info(`📨 Webhook endpoint: ${baseUrl}/webhook`);
 			logger.info(`💬 API base: ${baseUrl}/api`);
-		});
+		},
+    );
 	} catch (error) {
 		logger.error("Failed to start server:", error);
 		process.exit(1);

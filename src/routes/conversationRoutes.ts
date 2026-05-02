@@ -1,32 +1,15 @@
-import express from "express";
+import { Hono } from 'hono';
 import {
 	getConversations,
 	getConversationMessages,
 	markAsRead,
 } from "../controllers/conversationController.ts";
-import { validateParams, conversationIdSchema } from "../utils/validation.ts";
-import { createRequire } from 'module';
 
-const require = createRequire(import.meta.url);
+const router = new Hono();
 
-const router = express.Router();
-
-// Get all conversations
-router.get("/", getConversations);
-
-// Get messages for a specific conversation (with validation)
-router.get(
-	"/:conversationId/messages",
-	validateParams(conversationIdSchema),
-	getConversationMessages
-);
-
-// Mark conversation as read (with validation)
-router.post(
-	"/:conversationId/read",
-	validateParams(conversationIdSchema),
-	markAsRead
-);
+router.get('/', getConversations);
+router.get('/:conversationId/messages', getConversationMessages);
+router.post('/:conversationId/read', markAsRead);
 
 export default router;
 

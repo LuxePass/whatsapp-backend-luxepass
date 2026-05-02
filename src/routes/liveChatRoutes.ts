@@ -1,16 +1,11 @@
-import express from "express";
+import { Hono } from 'hono';
 import { endLiveChat, assignToPA, transferToPA } from "../controllers/liveChatController.ts";
 
-const router = express.Router();
+const router = new Hono();
 
-// Assign a user (by phone) to a PA — called by dashboard after "Assign to Me"
-router.post("/assign", assignToPA);
-
-// Transfer user to another PA — called by dashboard when PA transfers client
-router.post("/transfer", transferToPA);
-
-// End live chat session
-router.post("/:phoneNumber/end", endLiveChat);
+router.post('/assign', assignToPA);
+router.post('/transfer', transferToPA);
+router.post('/:phoneNumber/end', endLiveChat);
 
 export default router;
 

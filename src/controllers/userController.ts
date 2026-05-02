@@ -1,36 +1,26 @@
+import type { Context } from "hono";
 import User from "../models/User.ts";
 import logger from "../config/logger.ts";
 
 /**
  * Get saved bank accounts for a user
- * @param {Object} req - Express request
- * @param {Object} res - Express response
  */
-export async function getBankAccounts(req, res) {
+export async function getBankAccounts(c: Context): Promise<Response> {
 	try {
-		const { identifier } = req.params;
+		const identifier = c.req.param("identifier");
 
 		const user = await User.findOne({
 			$or: [{ phoneNumber: identifier }, { coreUserId: identifier }],
 		});
 
 		if (!user) {
-			return res.status(404).json({
-				success: false,
-				error: { message: "User not found" },
-			});
+			return c.json({ success: false, error: { message: "User not found" } }, 404);
 		}
 
-		return res.status(200).json({
-			success: true,
-			data: user.savedBankAccounts || [],
-		});
+		return c.json({ success: true, data: user.savedBankAccounts || [] }, 200);
 	} catch (error) {
-		logger.error("Error fetching bank accounts", { error: error.message });
-		return res.status(500).json({
-			success: false,
-			error: { message: "Internal server error" },
-		});
+		logger.error("Error fetching bank accounts", { error: (error as Error).message });
+		return c.json({ success: false, error: { message: "Internal server error" } }, 500);
 	}
 }
 

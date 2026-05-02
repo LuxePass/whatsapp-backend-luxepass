@@ -1,54 +1,42 @@
+import type { Context } from "hono";
 import { sendTextMessage } from "../services/whatsappService.ts";
 import logger from "../config/logger.ts";
 
 /**
  * Send OTP (or any system message) to a user via WhatsApp (plain text only).
- * Does NOT require live chat to be active. Note: delivery only works within 24h of user's last message.
  */
-export async function sendOtpMessage(req, res) {
+export async function sendOtpMessage(c: Context): Promise<Response> {
 	try {
-		const { to, message } = req.body;
+		const { to, message } = await c.req.json() as { to: string; message: string };
 
 		if (!to || !message) {
-			return res.status(400).json({
+			return c.json({
 				success: false,
-				error: {
-					message: "Missing required fields: 'to' (phone) and 'message'",
-					code: 400,
-				},
-			});
+				error: { message: "Missing required fields: 'to' (phone) and 'message'", code: 400 },
+			}, 400);
 		}
 
 		const normalizedTo = String(to).replace(/\D/g, "");
 		if (normalizedTo.length < 10 || normalizedTo.length > 15) {
-			return res.status(400).json({
-				success: false,
-				error: { message: "Invalid phone number", code: 400 },
-			});
+			return c.json({ success: false, error: { message: "Invalid phone number", code: 400 } }, 400);
 		}
 
 		const result = await sendTextMessage(normalizedTo, message);
 
 		if (result.success) {
-			return res.status(200).json({
-				success: true,
-				messageId: result.messageId,
-			});
+			return c.json({ success: true, messageId: result.messageId }, 200);
 		}
 
-		return res.status(result.error?.code || 400).json({
+		return c.json({
 			success: false,
 			error: result.error || { message: "Failed to send message", code: 400 },
-		});
+		}, (result.error?.code as any) || 400);
 	} catch (error) {
 		logger.error("Send OTP message error", {
-			error: error.message,
-			stack: error.stack,
+			error: (error as Error).message,
+			stack: (error as Error).stack,
 		});
-		return res.status(500).json({
-			success: false,
-			error: { message: "Internal server error", code: 500 },
-		});
+		return c.json({ success: false, error: { message: "Internal server error", code: 500 } }, 500);
 	}
 }
 

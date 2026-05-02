@@ -1,3 +1,4 @@
+import type { Context } from "hono";
 import logger from "../config/logger.ts";
 import {
 	verifyWebhookSignature,
@@ -13,54 +14,86 @@ import { handleWorkflow } from "../services/workflowService.ts";
 /**
  * Handle webhook verification (GET request)
  */
-export function handleWebhookVerification(req, res) {
-	const mode = req.query["hub.mode"];
-	const token = req.query["hub.verify_token"];
-	const challenge = req.query["hub.challenge"];
+export function handleWebhookVerification(c: Context): Response {
+	const mode = c.req.query("hub.mode");
+	const token = c.req.query("hub.verify_token");
+	const challenge = c.req.query("hub.challenge");
 
 	logger.info("Webhook verification request", { mode, token: !!token });
 
 	const verifiedChallenge = verifyWebhookChallenge(mode, token, challenge);
 
 	if (verifiedChallenge) {
-		res.status(200).send(verifiedChallenge);
+		return c.text(verifiedChallenge, 200);
 	} else {
 		logger.warn("Webhook verification failed");
-		res.status(403).json({ error: "Verification failed" });
+		return c.json({ error: "Verification failed" }, 403);
 	}
 }
 
 /**
  * Handle incoming webhook events (POST request)
  */
-export async function handleWebhookEvent(req, res) {
+export async function handleWebhookEvent(c: Context): Promise<Response> {
 	try {
 		// Verify signature if in production
 		if (process.env.NODE_ENV === "production") {
-			const signature = req.headers["x-hub-signature-256"];
-			// Use captured rawBody from express.json verify callback
-			const rawBody = req.rawBody;
+			const signature = c.req.header("x-hub-signature-256");
+			const buf = await c.req.arrayBuffer();
+			const rawBody = Buffer.from(buf);
 
-			if (!rawBody || !verifyWebhookSignature(signature, rawBody)) {
+			if (!rawBody.length || !verifyWebhookSignature(signature, rawBody)) {
 				logger.warn("Webhook signature verification failed");
-				return res.status(403).json({ error: "Invalid signature" });
+				return c.json({ error: "Invalid signature" }, 403);
 			}
+
+			// Parse body from raw bytes since we already consumed the stream
+			let body: unknown;
+			try {
+				body = JSON.parse(rawBody.toString("utf-8"));
+			} catch {
+				return c.json({ error: "Invalid JSON body" }, 400);
+			}
+
+			// Respond immediately to Meta (within 20 seconds)
+			const response = c.json({ status: "ok" }, 200);
+
+			if (
+				typeof body === "object" &&
+				body !== null &&
+				(body as Record<string, unknown>).object === "whatsapp_business_account"
+			) {
+				processWebhookEvents(
+					((body as Record<string, unknown>).entry as unknown[]) || [],
+				).catch((err) =>
+					logger.error("Async webhook processing error", { error: err.message }),
+				);
+			} else {
+				logger.warn("Unknown webhook object type", {
+					object: (body as Record<string, unknown>)?.object,
+				});
+			}
+
+			return response;
 		}
 
-		const body = req.body;
+		const body = await c.req.json();
 
 		// Respond immediately to Meta (within 20 seconds)
-		res.status(200).json({ status: "ok" });
+		const response = c.json({ status: "ok" }, 200);
 
-		// Process webhook events asynchronously
 		if (body.object === "whatsapp_business_account") {
-			await processWebhookEvents(body.entry || []);
+			processWebhookEvents(body.entry || []).catch((err) =>
+				logger.error("Async webhook processing error", { error: err.message }),
+			);
 		} else {
 			logger.warn("Unknown webhook object type", { object: body.object });
 		}
+
+		return response;
 	} catch (error) {
-		logger.error("Error handling webhook event", { error: error.message });
-		res.status(500).json({ error: "Internal server error" });
+		logger.error("Error handling webhook event", { error: (error as Error).message });
+		return c.json({ error: "Internal server error" }, 500);
 	}
 }
 

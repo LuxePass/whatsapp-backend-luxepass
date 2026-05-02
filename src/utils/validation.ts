@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { HTTPException } from "hono/http-exception";
+import type { Context } from "hono";
 
 /**
  * Validation schemas for API requests
@@ -61,47 +63,38 @@ export const conversationIdSchema = z.object({
 });
 
 /**
- * Validate request body against schema
+ * Parse and validate the request JSON body against a Zod schema.
+ * Throws HTTPException(400) on failure so Hono's onError handler responds.
  */
-export function validateRequest(schema) {
-	return (req, res, next) => {
-		try {
-			const validated = schema.parse(req.body);
-			req.body = validated;
-			next();
-		} catch (error) {
-			if (error instanceof z.ZodError) {
-				return res.status(400).json({
-					success: false,
-					error: "Validation failed",
-					details: error.errors,
-				});
-			}
-			next(error);
-		}
-	};
+export async function parseBody<T extends z.ZodTypeAny>(
+	c: Context,
+	schema: T,
+): Promise<z.infer<T>> {
+	let data: unknown;
+	try {
+		data = await c.req.json();
+	} catch {
+		throw new HTTPException(400, { message: "Invalid JSON body" });
+	}
+	const result = schema.safeParse(data);
+	if (!result.success) {
+		throw new HTTPException(400, { message: result.error.errors[0]?.message ?? "Validation failed" });
+	}
+	return result.data;
 }
 
 /**
- * Validate request params against schema
+ * Parse and validate path params against a Zod schema.
+ * Throws HTTPException(400) on failure.
  */
-export function validateParams(schema) {
-	return (req, res, next) => {
-		try {
-			const validated = schema.parse(req.params);
-			req.params = validated;
-			next();
-		} catch (error) {
-			if (error instanceof z.ZodError) {
-				return res.status(400).json({
-					success: false,
-					error: "Invalid parameters",
-					details: error.errors,
-				});
-			}
-			next(error);
-		}
-	};
+export function parseParams<T extends z.ZodTypeAny>(
+	c: Context,
+	schema: T,
+): z.infer<T> {
+	const result = schema.safeParse(c.req.param());
+	if (!result.success) {
+		throw new HTTPException(400, { message: result.error.errors[0]?.message ?? "Invalid parameters" });
+	}
+	return result.data;
 }
-
 

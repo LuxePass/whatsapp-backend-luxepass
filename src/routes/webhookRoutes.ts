@@ -1,16 +1,13 @@
-import express from "express";
+import { Hono } from 'hono';
 import {
 	handleWebhookVerification,
 	handleWebhookEvent,
 } from "../controllers/webhookController.ts";
 
-const router = express.Router();
+const router = new Hono();
 
-// Webhook verification (GET) - Meta calls this to verify the webhook
-router.get("/", handleWebhookVerification);
-
-// Webhook event handler (POST) - Meta sends events here
-router.post("/", handleWebhookEvent);
+router.get('/', handleWebhookVerification);
+router.post('/', handleWebhookEvent);
 
 export default router;
 
