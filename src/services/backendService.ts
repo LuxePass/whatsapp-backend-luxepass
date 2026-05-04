@@ -6,6 +6,9 @@ import logger from "../config/logger.ts";
 const CORE_BACKEND_URL =
 	process.env.CORE_BACKEND_URL || "https://backend-luxepass-sruf.onrender.com/api/v1";
 
+// Derive the internal base URL from the public one (/api/v1 → /api/v1/internal)
+const CORE_INTERNAL_URL = CORE_BACKEND_URL.replace(/\/api\/v1\/?$/, "/api/v1/internal");
+
 /**
  * Axios instance with a 15-second request timeout.
  * Render free-tier servers can be slow on cold start, so we give them time.
@@ -14,6 +17,26 @@ const apiClient = axios.create({
 	baseURL: CORE_BACKEND_URL,
 	timeout: 15_000,
 	headers: { "Content-Type": "application/json" },
+});
+
+/**
+ * Dedicated client for internal-only endpoints (/api/v1/internal/...).
+ * Secret is injected via request interceptor so it's always fresh.
+ */
+const internalClient = axios.create({
+	baseURL: CORE_INTERNAL_URL,
+	timeout: 15_000,
+	headers: { "Content-Type": "application/json" },
+});
+
+// Inject internal secret on every request (read at request time, not at import time)
+internalClient.interceptors.request.use((config) => {
+	const secret = process.env.CORE_BACKEND_INTERNAL_SECRET ?? "";
+	if (!secret) {
+		logger.warn("[backendService] CORE_BACKEND_INTERNAL_SECRET not set — internal requests will fail auth");
+	}
+	config.headers["x-whatsapp-backend-secret"] = secret;
+	return config;
 });
 
 // ─── Retry Utility ────────────────────────────────────────────────────────────
@@ -679,22 +702,13 @@ export async function assignUserToPA(paId, userId) {
 /**
  * Get minimal user data from core backend via internal endpoint.
  * WhatsApp caches this locally to avoid repeated queries.
- *
- * @param {string} phone
- * @returns {Promise<{id, phone, name, uniqueId, tier, status} | null>}
  */
 export async function getUserByPhone(phone) {
 	const normalizedPhone = normalizePhone(phone);
-	const secret = process.env.CORE_BACKEND_INTERNAL_SECRET ?? "";
 
 	try {
 		const response = await withRetry(
-			() =>
-				apiClient.post(
-					"/internal/users/by-phone",
-					{ phone: normalizedPhone },
-					{ headers: { "x-whatsapp-backend-secret": secret } },
-				),
+			() => internalClient.post("/users/by-phone", { phone: normalizedPhone }),
 			{ label: `getUserByPhone(${normalizedPhone})` },
 		);
 		return response.data.success ? response.data.data?.user ?? null : null;
@@ -712,20 +726,11 @@ export async function getUserByPhone(phone) {
 
 /**
  * Ensure conversation exists in core backend (get or create).
- * Returns conversation ID and metadata.
- *
- * @param {{phoneNumber: string, whatsappThreadId: string, userName?: string}} data
- * @returns {Promise<{conversationId, status, currentHandler, assignedPaId, created} | null>}
  */
 export async function ensureConversationExists(data) {
-	const secret = process.env.CORE_BACKEND_INTERNAL_SECRET ?? "";
-
 	try {
 		const response = await withRetry(
-			() =>
-				apiClient.post("/internal/conversations/ensure-exists", data, {
-					headers: { "x-whatsapp-backend-secret": secret },
-				}),
+			() => internalClient.post("/conversations/ensure-exists", data),
 			{ label: `ensureConversationExists(${data.whatsappThreadId})` },
 		);
 		return response.data.success ? response.data.data : null;
@@ -742,28 +747,11 @@ export async function ensureConversationExists(data) {
 /**
  * Create a message in core backend from WhatsApp.
  * Idempotent: duplicate whatsappMessageId returns existing message.
- *
- * @param {{
- *   conversationId: string,
- *   senderType: 'USER' | 'BOT' | 'PA' | 'SYSTEM',
- *   content: string,
- *   whatsappMessageId: string,
- *   contentType?: string,
- *   mediaUrl?: string,
- *   senderId?: string,
- *   metadata?: object
- * }} data
- * @returns {Promise<{messageId, conversationId, createdAt, isDuplicate} | null>}
  */
 export async function createMessage(data) {
-	const secret = process.env.CORE_BACKEND_INTERNAL_SECRET ?? "";
-
 	try {
 		const response = await withRetry(
-			() =>
-				apiClient.post("/internal/messages/create", data, {
-					headers: { "x-whatsapp-backend-secret": secret },
-				}),
+			() => internalClient.post("/messages/create", data),
 			{ retries: 2, label: `createMessage(${data.whatsappMessageId})` },
 		);
 		return response.data.success ? response.data.data : null;
@@ -780,21 +768,13 @@ export async function createMessage(data) {
 /**
  * Retrieve messages for a conversation from core backend.
  * Used to build conversation context before sending bot response.
- *
- * @param {string} conversationId
- * @param {number} limit - Max messages to fetch (default 10, max 50)
- * @param {number} offset - Pagination offset (default 0)
- * @returns {Promise<Array | null>}
  */
 export async function getConversationMessages(conversationId, limit = 10, offset = 0) {
-	const secret = process.env.CORE_BACKEND_INTERNAL_SECRET ?? "";
-
 	try {
 		const response = await withRetry(
 			() =>
-				apiClient.get(
-					`/internal/conversations/${conversationId}/messages?limit=${limit}&offset=${offset}`,
-					{ headers: { "x-whatsapp-backend-secret": secret } },
+				internalClient.get(
+					`/conversations/${conversationId}/messages?limit=${limit}&offset=${offset}`,
 				),
 			{ label: `getConversationMessages(${conversationId})` },
 		);
