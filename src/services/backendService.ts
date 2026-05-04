@@ -125,6 +125,22 @@ export async function checkUserExists(phone) {
 }
 
 /**
+ * Resolves canonical identity info from core backend.
+ * Core backend is the source of truth for user identity/security fields.
+ */
+export async function resolveCoreIdentity(phone, cachedUniqueId = null) {
+	const lookup = await checkUserExists(phone);
+	const uniqueId = lookup?.uniqueId ?? cachedUniqueId ?? null;
+	const identifier = uniqueId ?? normalizePhone(phone);
+	return {
+		exists: Boolean(lookup?.exists),
+		uniqueId,
+		identifier,
+		securityQuestion: lookup?.securityQuestion ?? null,
+	};
+}
+
+/**
  * Registers a new user in the core backend.
  *
  * @param {{ name: string, phone: string, email: string, referralCode?: string }} userData
@@ -648,6 +664,7 @@ export async function assignUserToPA(paId, userId) {
 export default {
 	normalizePhone,
 	checkUserExists,
+	resolveCoreIdentity,
 	registerUser,
 	getListings,
 	getListingById,

@@ -485,13 +485,19 @@ async function handleOnboarding(user: UserDoc, message: string): Promise<void> {
     const question = user.workflowData.get("securityQuestion") ?? "";
 
     try {
+      const identity = await backendService.resolveCoreIdentity(user.phoneNumber, user.coreUserId ?? null);
+      if (identity.uniqueId && !user.coreUserId) user.coreUserId = identity.uniqueId;
+
       const success = await backendService.setSecurityQuestion({
-        userIdentifier: user.phoneNumber,
+        userIdentifier: identity.identifier,
         question,
         answer: input,
       });
       if (!success) throw new Error("setSecurityQuestion returned false");
-      logger.info("Security question set on core backend", { phone: user.phoneNumber });
+      logger.info("Security question set on core backend", {
+        phone: user.phoneNumber,
+        identifier: identity.identifier,
+      });
     } catch (err) {
       logger.error("Error setting security question", { phone: user.phoneNumber, error: (err as Error).message });
     }
@@ -501,7 +507,9 @@ async function handleOnboarding(user: UserDoc, message: string): Promise<void> {
 
     let walletInfo = "";
     try {
-      const wallet = await backendService.getWallet(user.phoneNumber);
+      const identity = await backendService.resolveCoreIdentity(user.phoneNumber, user.coreUserId ?? null);
+      if (identity.uniqueId && !user.coreUserId) user.coreUserId = identity.uniqueId;
+      const wallet = await backendService.getWallet(identity.identifier);
       if (wallet?.virtualAccount) {
         walletInfo =
           `\n\n💳 *Your Wallet Details*\nBank: ${wallet.virtualAccount.bankName}` +
@@ -1408,28 +1416,22 @@ export async function handleWalletFlow(user: UserDoc, message: string): Promise<
     }
     const securityAnswer = parsedSecurityInput.answer;
     const pendingAction = user.workflowData.get("walletPendingAction");
-    let coreUserId = user.coreUserId ?? (user.workflowData.get("coreUserId") as string | undefined);
 
-    // Try to recover coreUserId from core backend if missing
-    if (!coreUserId) {
-      try {
-        const coreCheck = await backendService.checkUserExists(user.phoneNumber);
-        if (coreCheck?.uniqueId) {
-          coreUserId = coreCheck.uniqueId as string;
-          user.coreUserId = coreUserId;
-          await user.save();
-          logger.info("Recovered coreUserId during wallet security verification", { phoneNumber, coreUserId });
-        }
-      } catch (recoverErr) {
-        logger.warn("Could not recover coreUserId during security verification", {
-          phoneNumber,
-          error: (recoverErr as Error).message,
-        });
-      }
+    const identity = await backendService.resolveCoreIdentity(
+      user.phoneNumber,
+      user.coreUserId ?? (user.workflowData.get("coreUserId") as string | undefined) ?? null,
+    );
+    if (identity.uniqueId && user.coreUserId !== identity.uniqueId) {
+      user.coreUserId = identity.uniqueId;
+      user.workflowData.set("coreUserId", identity.uniqueId);
+      await user.save();
+      logger.info("Resolved canonical core identity for wallet verification", {
+        phoneNumber,
+        coreUserId: identity.uniqueId,
+      });
     }
 
-    // Fall back to phone number — matches what setSecurityQuestion used during onboarding
-    const identifier = coreUserId ?? user.phoneNumber;
+    const identifier = identity.identifier;
 
     try {
       const { token, httpStatus } = await backendService.verifySecurityAnswer(identifier, securityAnswer);
@@ -1556,28 +1558,18 @@ export async function handleWalletFlow(user: UserDoc, message: string): Promise<
       return;
     }
     const question = user.workflowData.get("newSecurityQuestion") ?? "";
-    let coreUserId = user.coreUserId ?? (user.workflowData.get("coreUserId") as string | undefined);
 
-    if (!coreUserId) {
-      try {
-        const coreCheck = await backendService.checkUserExists(user.phoneNumber);
-        if (coreCheck?.uniqueId) {
-          coreUserId = coreCheck.uniqueId as string;
-          user.coreUserId = coreUserId;
-          user.workflowData.set("coreUserId", coreUserId);
-        }
-      } catch (recoverErr) {
-        logger.warn("Could not recover coreUserId during security question update", {
-          phoneNumber,
-          error: (recoverErr as Error).message,
-        });
-      }
+    const identity = await backendService.resolveCoreIdentity(
+      user.phoneNumber,
+      user.coreUserId ?? (user.workflowData.get("coreUserId") as string | undefined) ?? null,
+    );
+    if (identity.uniqueId && user.coreUserId !== identity.uniqueId) {
+      user.coreUserId = identity.uniqueId;
+      user.workflowData.set("coreUserId", identity.uniqueId);
     }
 
-    const identifier = coreUserId ?? user.phoneNumber;
-
     try {
-      const success = await backendService.setSecurityQuestion({ userIdentifier: identifier, question, answer });
+      const success = await backendService.setSecurityQuestion({ userIdentifier: identity.identifier, question, answer });
       if (!success) throw new Error("setSecurityQuestion returned false");
       user.workflowData.delete("newSecurityQuestion");
       user.workflowState = WorkflowState.WALLET_MENU;
@@ -1707,18 +1699,18 @@ async function promptWalletSecurityVerification(user: UserDoc, pendingAction: st
 
   let prompt = "🔐 *Security Verification*\n\nTo access your wallet, please answer your security question:";
   try {
-    const securityInfo = await backendService.checkUserExists(user.phoneNumber);
-    // Save coreUserId if not already set
-    if (securityInfo?.uniqueId && !user.coreUserId) {
-      user.coreUserId = securityInfo.uniqueId as string;
-      logger.info("coreUserId recovered during wallet security prompt", {
+    const identity = await backendService.resolveCoreIdentity(user.phoneNumber, user.coreUserId ?? null);
+    if (identity.uniqueId && !user.coreUserId) {
+      user.coreUserId = identity.uniqueId;
+      user.workflowData.set("coreUserId", identity.uniqueId);
+      logger.info("coreUserId resolved during wallet security prompt", {
         phoneNumber: user.phoneNumber,
         coreUserId: user.coreUserId,
       });
     }
-    if (securityInfo?.securityQuestion) {
-      user.workflowData.set("walletSecurityQuestion", securityInfo.securityQuestion);
-      prompt += `\n\n*"${securityInfo.securityQuestion}"*`;
+    if (identity.securityQuestion) {
+      user.workflowData.set("walletSecurityQuestion", identity.securityQuestion);
+      prompt += `\n\n*"${identity.securityQuestion}"*`;
       prompt += "\n\nReply with *only your answer* (example: *Bullet*).";
     } else {
       prompt += "\n\n_(Enter only the security answer you set during registration)_";
