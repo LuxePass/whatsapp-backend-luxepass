@@ -550,30 +550,26 @@ export async function initiateTransfer(data, token = null) {
  * @returns {Promise<Object|null>}
  */
 export async function createEmergencyTransfer(data) {
-	try {
-		const body: Record<string, unknown> = {
-			securityAnswer: data.securityAnswer,
-			amount: data.amount,
-			narration: data.narration,
-			assignedPaId: data.assignedPaId,
-			immediate: data.immediate,
-			expiryMinutes: data.expiryMinutes,
-			destinationAccount: data.destinationAccount,
-		};
-		if (data.phone != null) body.phone = data.phone;
-		if (data.uniqueId != null) body.uniqueId = data.uniqueId;
-		const response = await withRetry(
-			() => apiClient.post("/transfers/emergency", body),
-			{ retries: 2, label: "createEmergencyTransfer" },
-		);
-		return response.data.success ? response.data.data : null;
-	} catch (err) {
-		logger.error("[backendService] createEmergencyTransfer failed", {
-			status: err.response?.status,
-			message: err.response?.data?.error?.message ?? err.message,
-		});
-		return null;
+	const body: Record<string, unknown> = {
+		uniqueId: data.uniqueId,
+		securityAnswer: data.securityAnswer,
+		amount: data.amount,
+		narration: data.narration,
+		assignedPaId: data.assignedPaId,
+		immediate: data.immediate,
+		expiryMinutes: data.expiryMinutes,
+		destinationAccount: data.destinationAccount,
+	};
+	// Use the internal endpoint — avoids needing a user JWT token
+	const response = await withRetry(
+		() => internalClient.post("/transfers/emergency", body),
+		{ retries: 1, label: "createEmergencyTransfer" },
+	);
+	if (!response.data.success) {
+		const msg = response.data?.error?.message ?? "Transfer failed";
+		throw new Error(msg);
 	}
+	return response.data.data;
 }
 
 /**
@@ -595,15 +591,17 @@ export async function resolveAccount(
 	// Bank codes are typically short numeric strings (e.g. "058", "999992").
 	// Bank names are free text (e.g. "OPay", "GTBank"). Send accordingly so
 	// the core backend can look up the code via Paystack when given a name.
+	// Determine whether the caller passed a numeric bank code or a bank name.
 	const isCode = /^\d{3,6}$/.test(String(bankNameOrCode ?? "").trim());
 	const params = isCode
-		? { accountNumber, bankCode: bankNameOrCode, securityAnswer, uniqueId }
-		: { accountNumber, bankName: bankNameOrCode, securityAnswer, uniqueId };
+		? { accountNumber, bankCode: bankNameOrCode }
+		: { accountNumber, bankName: bankNameOrCode };
 
 	try {
+		// Use the internal endpoint — avoids needing a user JWT or security token
 		const response = await withRetry(
 			() =>
-				apiClient.get("/transfers/resolve-account", {
+				internalClient.get("/transfers/resolve-account", {
 					params,
 				}),
 			{ retries: 2, label: "resolveAccount" },
@@ -625,19 +623,16 @@ export async function resolveAccount(
  * @returns {Promise<Array|null>}
  */
 export async function createBulkEmergencyTransfer(data) {
-	try {
-		const response = await withRetry(
-			() => apiClient.post("/transfers/bulk-emergency", data),
-			{ retries: 2, label: "createBulkEmergencyTransfer" },
-		);
-		return response.data.success ? response.data.data : null;
-	} catch (err) {
-		logger.error("[backendService] createBulkEmergencyTransfer failed", {
-			status: err.response?.status,
-			message: err.response?.data?.error?.message ?? err.message,
-		});
-		return null;
+	// Use the internal endpoint — avoids needing a user JWT token
+	const response = await withRetry(
+		() => internalClient.post("/transfers/bulk-emergency", data),
+		{ retries: 1, label: "createBulkEmergencyTransfer" },
+	);
+	if (!response.data.success) {
+		const msg = response.data?.error?.message ?? "Bulk transfer failed";
+		throw new Error(msg);
 	}
+	return response.data.data;
 }
 
 /**
