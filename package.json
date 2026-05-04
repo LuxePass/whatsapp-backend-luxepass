@@ -5,6 +5,7 @@
 	"type": "module",
 	"main": "server.ts",
 	"scripts": {
+		"postinstall": "prisma generate",
 		"build": "prisma generate",
 		"start": "tsx server.ts",
 		"dev": "tsx watch server.ts",
