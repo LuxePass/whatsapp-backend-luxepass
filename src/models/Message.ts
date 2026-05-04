@@ -1,5 +1,5 @@
 import prisma from "../database/prisma.ts";
-import { nanoid } from "nanoid";
+import { randomBytes } from "node:crypto";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -63,11 +63,11 @@ export class MessageDocument implements MessageData {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function generateId(): string {
-	return `msg_${nanoid(16)}`;
+	return `msg_${randomBytes(8).toString("hex")}`;
 }
 
 function generateMessageId(): string {
-	return `wa_${nanoid(20)}`;
+	return `wa_${randomBytes(10).toString("hex")}`;
 }
 
 function fromPrisma(record: Record<string, unknown>): MessageDocument {

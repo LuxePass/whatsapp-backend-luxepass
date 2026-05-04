@@ -1,5 +1,5 @@
 import prisma from "../database/prisma.ts";
-import { nanoid } from "nanoid";
+import { randomBytes } from "node:crypto";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -79,7 +79,7 @@ export class UserDocument implements UserData {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function generateId(): string {
-	return `usr_${nanoid(16)}`;
+	return `usr_${randomBytes(8).toString("hex")}`;
 }
 
 function serializeForPrisma(doc: UserData): Record<string, unknown> {

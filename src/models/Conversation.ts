@@ -1,5 +1,5 @@
 import prisma from "../database/prisma.ts";
-import { nanoid } from "nanoid";
+import { randomBytes } from "node:crypto";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -64,7 +64,7 @@ export class ConversationDocument implements ConversationData {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function generateId(): string {
-	return `conv_${nanoid(16)}`;
+	return `conv_${randomBytes(8).toString("hex")}`;
 }
 
 function fromPrisma(record: Record<string, unknown>): ConversationDocument {
