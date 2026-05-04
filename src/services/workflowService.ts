@@ -269,6 +269,9 @@ const SIGNUP_COMMANDS = new Set([
   "signup",
   "register",
   "create account",
+  "create new account",
+  "reset account",
+  "rest account",
   "start over",
   "reset",
 ]);
@@ -276,6 +279,8 @@ const SIGNUP_COMMANDS = new Set([
 export function normalizeMessage(raw: string): string {
   return String(raw ?? "")
     .toLowerCase()
+    // Remove punctuation/formatting so commands like "*Menu*" or "reset account." still match.
+    .replace(/[^\w\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -288,7 +293,10 @@ export function isMenuCommand(normalized: string, state: WorkflowStateKey): bool
 }
 
 export function isSignupCommand(normalized: string): boolean {
-  return SIGNUP_COMMANDS.has(normalized);
+  if (SIGNUP_COMMANDS.has(normalized)) return true;
+  return /\b(sign\s*up|signup|register|new\s+account|create\s+(new\s+)?account|reset(\s+account)?|rest\s+account|start\s+over)\b/.test(
+    normalized
+  );
 }
 
 export function isLiveChatRequest(text: string): boolean {
@@ -547,31 +555,16 @@ export async function handleWorkflow(from: string, message: string, name: string
     }
 
     if (isSignupCommand(normalized)) {
-      // Only restart onboarding if user is genuinely mid-onboarding.
-      // For already-registered users, guide them to the right place.
-      const isInOnboarding = ONBOARDING_STATES.has(user.workflowState as WorkflowStateKey);
-      if (!isInOnboarding) {
-        user.workflowState = WorkflowState.MAIN_MENU;
-        user.workflowData = new Map();
-        user.isLiveChatActive = false;
-        user.assignedPaId = undefined;
-        await user.save();
-        await sendTextMessage(
-          phoneNumber,
-          `ℹ️ You already have a LuxePass account, *${user.name || "there"}*!\n\n` +
-            `• To reset your *security question*, go to *Wallet → Change Security Q*\n` +
-            `• To get help with your account, choose *Live Support* from the menu\n\n` +
-            `Returning you to the main menu now.`
-        );
-        await sendWelcomeMenu(phoneNumber, user.name);
-        return;
-      }
+      // Explicit signup/reset should always restart onboarding so users can recover setup state.
       user.workflowData = new Map();
       user.isLiveChatActive = false;
       user.assignedPaId = undefined;
       user.workflowState = user.name ? WorkflowState.ONBOARDING_EMAIL : WorkflowState.ONBOARDING_NAME;
       await user.save();
-      await sendTextMessage(phoneNumber, "Sure! Let's start your LuxePass sign-up again.");
+      await sendTextMessage(
+        phoneNumber,
+        "Sure! Let's restart your LuxePass account setup so you can continue from a clean state."
+      );
       if (user.workflowState === WorkflowState.ONBOARDING_NAME) {
         await sendTextMessage(phoneNumber, "Welcome to LuxePass! 👋\n\nPlease enter your name to begin:");
       } else {
