@@ -99,7 +99,19 @@ export async function checkUserExists(phone) {
 			() => apiClient.get(`/users/exists?phone=${normalizedPhone}`),
 			{ label: "checkUserExists" },
 		);
-		return response.data.success ? response.data.data : null;
+		if (!response.data.success) return null;
+
+		const payload = response.data.data ?? {};
+		const user = payload.user ?? null;
+		const uniqueId = payload.uniqueId ?? user?.uniqueId ?? null;
+		const securityQuestion = payload.securityQuestion ?? user?.securityQuestion ?? null;
+
+		return {
+			exists: Boolean(payload.exists ?? user),
+			uniqueId,
+			securityQuestion,
+			user,
+		};
 	} catch (err) {
 		if (err.response?.status === 404) return null;
 

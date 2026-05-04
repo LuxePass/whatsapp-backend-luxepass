@@ -1543,7 +1543,24 @@ export async function handleWalletFlow(user: UserDoc, message: string): Promise<
       return;
     }
     const question = user.workflowData.get("newSecurityQuestion") ?? "";
-    const coreUserId = user.coreUserId ?? (user.workflowData.get("coreUserId") as string | undefined);
+    let coreUserId = user.coreUserId ?? (user.workflowData.get("coreUserId") as string | undefined);
+
+    if (!coreUserId) {
+      try {
+        const coreCheck = await backendService.checkUserExists(user.phoneNumber);
+        if (coreCheck?.uniqueId) {
+          coreUserId = coreCheck.uniqueId as string;
+          user.coreUserId = coreUserId;
+          user.workflowData.set("coreUserId", coreUserId);
+        }
+      } catch (recoverErr) {
+        logger.warn("Could not recover coreUserId during security question update", {
+          phoneNumber,
+          error: (recoverErr as Error).message,
+        });
+      }
+    }
+
     const identifier = coreUserId ?? user.phoneNumber;
 
     try {
