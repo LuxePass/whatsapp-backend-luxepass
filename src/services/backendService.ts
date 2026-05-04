@@ -141,6 +141,21 @@ export async function resolveCoreIdentity(phone, cachedUniqueId = null) {
 }
 
 /**
+ * Resolves and retrieves wallet with canonical identifier.
+ * Single source of truth for wallet operations.
+ *
+ * @param {string} phone - User phone number
+ * @param {string|null} cachedUniqueId - Optional cached uniqueId
+ * @param {string|null} securityToken - Optional security verification token
+ * @returns {Promise<{ identity, wallet }>}
+ */
+export async function resolveWallet(phone, cachedUniqueId = null, securityToken = null) {
+	const identity = await resolveCoreIdentity(phone, cachedUniqueId);
+	const wallet = await getWallet(identity.identifier, securityToken);
+	return { identity, wallet };
+}
+
+/**
  * Registers a new user in the core backend.
  *
  * @param {{ name: string, phone: string, email: string, referralCode?: string }} userData
@@ -665,6 +680,7 @@ export default {
 	normalizePhone,
 	checkUserExists,
 	resolveCoreIdentity,
+	resolveWallet,
 	registerUser,
 	getListings,
 	getListingById,

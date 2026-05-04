@@ -507,9 +507,12 @@ async function handleOnboarding(user: UserDoc, message: string): Promise<void> {
 
     let walletInfo = "";
     try {
-      const identity = await backendService.resolveCoreIdentity(user.phoneNumber, user.coreUserId ?? null);
+      const { identity, wallet } = await backendService.resolveWallet(
+        user.phoneNumber,
+        user.coreUserId ?? null,
+        null,
+      );
       if (identity.uniqueId && !user.coreUserId) user.coreUserId = identity.uniqueId;
-      const wallet = await backendService.getWallet(identity.identifier);
       if (wallet?.virtualAccount) {
         walletInfo =
           `\n\n💳 *Your Wallet Details*\nBank: ${wallet.virtualAccount.bankName}` +
@@ -1142,7 +1145,7 @@ async function sendBookingSummary(user: UserDoc): Promise<void> {
 
   let walletInfo = "Wallet details unavailable.";
   try {
-    const wallet = await backendService.getWallet(user.phoneNumber);
+    const { wallet } = await backendService.resolveWallet(user.phoneNumber, user.coreUserId ?? null, null);
     if (wallet?.virtualAccount) {
       walletInfo =
         `\n🏦 *Fund Your Wallet to Pay*\nBank: ${wallet.virtualAccount.bankName}` +
@@ -1183,7 +1186,7 @@ async function handleBookingPaymentVerify(user: UserDoc, message: string): Promi
 
     if (!booking) throw new Error("Failed to create booking on core backend");
 
-    const wallet = await backendService.getWallet(user.phoneNumber);
+    const { wallet } = await backendService.resolveWallet(user.phoneNumber, user.coreUserId ?? null, null);
     if (wallet && Number(wallet.balance) < totalAmount) {
       const shortfall = (totalAmount - Number(wallet.balance)).toLocaleString();
       const depositInfo = wallet.virtualAccount
@@ -1452,7 +1455,7 @@ export async function handleWalletFlow(user: UserDoc, message: string): Promise<
         return;
       }
 
-      const wallet = await backendService.getWallet(identifier, token);
+      const { wallet } = await backendService.resolveWallet(phoneNumber, identifier, token);
       if (!wallet) {
         await sendTextMessage(
           phoneNumber,
