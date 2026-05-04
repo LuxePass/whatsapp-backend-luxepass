@@ -117,6 +117,32 @@ const EMERGENCY_TRANSFER_LOCK_MINUTES = 15;
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
+function isLikelyTestVirtualAccount(account: {
+  bankName?: string;
+  accountName?: string;
+  accountNumber?: string;
+} | null | undefined): boolean {
+  if (!account) return false;
+  const bank = String(account.bankName || "").toLowerCase();
+  const name = String(account.accountName || "").toLowerCase();
+  const accountNumber = String(account.accountNumber || "");
+  return (
+    bank.includes("test") ||
+    name.includes("test") ||
+    name.includes("managed-account") ||
+    /^1230\d{6,}$/.test(accountNumber)
+  );
+}
+
+function selectPreferredVirtualAccount(wallet: any) {
+  const list = Array.isArray(wallet?.virtualAccounts) ? wallet.virtualAccounts : [];
+  const preferred = list.find((acc: any) => !isLikelyTestVirtualAccount(acc));
+  if (preferred) return preferred;
+  const fallbackSingle = wallet?.virtualAccount;
+  if (fallbackSingle && !isLikelyTestVirtualAccount(fallbackSingle)) return fallbackSingle;
+  return null;
+}
+
 const ONBOARDING_STATES = new Set<WorkflowStateKey>([
   WorkflowState.ONBOARDING_NAME,
   WorkflowState.ONBOARDING_EMAIL,
@@ -1189,8 +1215,9 @@ async function handleBookingPaymentVerify(user: UserDoc, message: string): Promi
     const { wallet } = await backendService.resolveWallet(user.phoneNumber, user.coreUserId ?? null, null);
     if (wallet && Number(wallet.balance) < totalAmount) {
       const shortfall = (totalAmount - Number(wallet.balance)).toLocaleString();
-      const depositInfo = wallet.virtualAccount
-        ? `Bank: ${wallet.virtualAccount.bankName}\nAccount Number: ${wallet.virtualAccount.accountNumber}\nAccount Name: ${wallet.virtualAccount.accountName}`
+      const preferredAccount = selectPreferredVirtualAccount(wallet);
+      const depositInfo = preferredAccount
+        ? `Bank: ${preferredAccount.bankName}\nAccount Number: ${preferredAccount.accountNumber}\nAccount Name: ${preferredAccount.accountName}`
         : "Please contact support for deposit instructions.";
       await sendTextMessage(
         user.phoneNumber,
@@ -1474,10 +1501,10 @@ export async function handleWalletFlow(user: UserDoc, message: string): Promise<
           `*Your Balance* 💰\n\nYour current wallet balance is: *₦${Number(wallet.balance).toLocaleString()}*`
         );
       } else if (pendingAction === "wallet_deposit" || pendingAction?.includes("deposit")) {
-        const vAccount = wallet.virtualAccounts?.[0] ?? wallet.virtualAccount;
+        const vAccount = selectPreferredVirtualAccount(wallet);
         const depositText = vAccount
           ? `*Deposit Account Details* 📥\n\n🏦 *Bank*: ${vAccount.bankName}\n🔢 *Account Number*: ${vAccount.accountNumber}\n👤 *Account Name*: ${vAccount.accountName}\n\n_Funds are credited instantly upon confirmation._`
-          : "We are setting up your virtual account. Please contact support or check back shortly.";
+          : "Your live virtual account is being prepared. Please check back shortly.";
         await sendTextMessage(phoneNumber, depositText);
       }
 
