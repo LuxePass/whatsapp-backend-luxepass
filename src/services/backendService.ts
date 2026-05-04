@@ -89,12 +89,36 @@ async function withRetry(
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
- * Strips all non-digit characters from a phone number.
- * @param {string} phone
- * @returns {string}
+ * Normalizes phone numbers to E.164-like format expected by core backend.
+ * Nigerian-centric rules:
+ * - +2348012345678 -> +2348012345678
+ * - 2348012345678  -> +2348012345678
+ * - 08012345678    -> +2348012345678
+ * - 8012345678     -> +2348012345678
  */
 export function normalizePhone(phone) {
-	return phone ? phone.replace(/\D/g, "") : "";
+	if (!phone) return "";
+
+	const raw = String(phone).trim();
+	const digits = raw.replace(/\D/g, "");
+
+	if (raw.startsWith("+") && digits.length >= 11) {
+		return `+${digits}`;
+	}
+
+	if (digits.startsWith("234") && digits.length === 13) {
+		return `+${digits}`;
+	}
+
+	if (digits.startsWith("0") && digits.length === 11) {
+		return `+234${digits.slice(1)}`;
+	}
+
+	if (digits.length === 10) {
+		return `+234${digits}`;
+	}
+
+	return digits.length > 0 ? `+${digits}` : "";
 }
 
 /**
