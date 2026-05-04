@@ -429,15 +429,28 @@ async function handleOnboarding(user: UserDoc, message: string): Promise<void> {
         email: user.workflowData.get("email") ?? `wa_${user.phoneNumber}@luxepass.local`,
         referralCode: user.workflowData.get("referredBy"),
       });
-      if (coreUser?.uniqueId) {
-        user.coreUserId = coreUser.uniqueId as string;
-        logger.info("User registered on core backend", { phone: user.phoneNumber, coreUserId: coreUser.uniqueId });
+      if (!coreUser?.uniqueId) {
+        logger.error("Core registration did not return uniqueId", { phone: user.phoneNumber });
+        await sendTextMessage(
+          user.phoneNumber,
+          "⚠️ We couldn't complete account creation right now due to a backend sync issue.\n\n" +
+            "Please type *Menu* and try again in a moment."
+        );
+        return;
       }
+
+      user.coreUserId = coreUser.uniqueId as string;
+      logger.info("User registered on core backend", { phone: user.phoneNumber, coreUserId: coreUser.uniqueId });
     } catch (err) {
       logger.error("Failed to register user on core backend", {
         phone: user.phoneNumber,
         error: (err as Error).message,
       });
+      await sendTextMessage(
+        user.phoneNumber,
+        "⚠️ We couldn't complete account creation right now.\n\nPlease type *Menu* and try again shortly."
+      );
+      return;
     }
 
     user.workflowState = WorkflowState.ONBOARDING_SECURITY_QUESTION;
