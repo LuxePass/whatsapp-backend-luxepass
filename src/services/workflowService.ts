@@ -426,7 +426,7 @@ async function handleOnboarding(user: UserDoc, message: string): Promise<void> {
       const coreUser = await backendService.registerUser({
         name: user.name,
         phone: user.phoneNumber,
-        email: user.workflowData.get("email") ?? `wa_${user.phoneNumber}@luxepass.local`,
+        email: user.workflowData.get("email") ?? `wa_${String(user.phoneNumber).replace(/\D/g, "")}@luxepass.com`,
         referralCode: user.workflowData.get("referredBy"),
       });
       if (!coreUser?.uniqueId) {
@@ -561,7 +561,7 @@ export async function handleWorkflow(from: string, message: string, name: string
         const seededCoreUser = await backendService.registerUser({
           name: fallbackName,
           phone: phoneNumber,
-          email: `wa_${phoneNumber}@luxepass.local`,
+          email: `wa_${String(phoneNumber).replace(/\D/g, "")}@luxepass.com`,
         });
         if (seededCoreUser?.uniqueId) {
           seededCoreUserId = seededCoreUser.uniqueId as string;
