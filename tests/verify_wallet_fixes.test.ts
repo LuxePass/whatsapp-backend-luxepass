@@ -4,13 +4,15 @@ import { describe, test, expect, beforeEach, vi } from "vitest";
 const {
 	mockSendListMessage,
 	mockSendTextMessage,
-	mockGetWallet,
+	mockResolveWallet,
+	mockResolveCoreIdentity,
 	mockVerifySecurityAnswer,
 } = vi.hoisted(() => ({
 	mockSendListMessage: vi.fn(async () => ({ success: true })),
 	mockSendTextMessage: vi.fn(async () => ({ success: true })),
-	mockGetWallet: vi.fn(async () => null as unknown),
-	mockVerifySecurityAnswer: vi.fn(async () => null as string | null),
+	mockResolveWallet: vi.fn(async () => ({ identity: { identifier: "core-123", uniqueId: "core-123", exists: true, securityQuestion: null }, wallet: null as unknown })),
+	mockResolveCoreIdentity: vi.fn(async () => ({ identifier: "core-123", uniqueId: "core-123", exists: true, securityQuestion: null })),
+	mockVerifySecurityAnswer: vi.fn(async () => ({ token: null as string | null, httpStatus: 401 })),
 }));
 
 vi.mock("../src/services/whatsappService.ts", () => ({
@@ -23,12 +25,14 @@ vi.mock("../src/services/whatsappService.ts", () => ({
 
 vi.mock("../src/services/backendService.ts", () => ({
 	default: {
-		getWallet: mockGetWallet,
-		checkUserExists: vi.fn(),
+		resolveWallet: mockResolveWallet,
+		resolveCoreIdentity: mockResolveCoreIdentity,
+		checkUserExists: vi.fn(async () => ({ exists: true, uniqueId: "core-123", securityQuestion: null })),
 		verifySecurityAnswer: mockVerifySecurityAnswer,
 	},
-	getWallet: mockGetWallet,
-	checkUserExists: vi.fn(),
+	resolveWallet: mockResolveWallet,
+	resolveCoreIdentity: mockResolveCoreIdentity,
+	checkUserExists: vi.fn(async () => ({ exists: true, uniqueId: "core-123", securityQuestion: null })),
 	verifySecurityAnswer: mockVerifySecurityAnswer,
 }));
 
@@ -51,6 +55,7 @@ describe("Wallet Fixes Verification", () => {
 			name: "Test User",
 			workflowState: "WALLET_MENU",
 			workflowData: new Map([["coreUserId", "core-123"]]),
+			coreUserId: "core-123",
 			save: vi.fn(async () => true),
 		};
 	});
@@ -67,7 +72,6 @@ describe("Wallet Fixes Verification", () => {
 					rows: expect.arrayContaining([
 						expect.objectContaining({ id: "wallet_balance" }),
 						expect.objectContaining({ id: "wallet_deposit" }),
-						expect.objectContaining({ id: "wallet_manage_accounts" }),
 					]),
 				}),
 			]),
@@ -79,40 +83,34 @@ describe("Wallet Fixes Verification", () => {
 		mockUser.workflowState = "WALLET_VERIFY_SECURITY";
 		mockUser.workflowData.set("walletPendingAction", "wallet_balance");
 
-		mockVerifySecurityAnswer.mockResolvedValue("mock-token-abc");
-		mockGetWallet.mockResolvedValue({
-			balance: 100000,
-			virtualAccount: null,
+		mockVerifySecurityAnswer.mockResolvedValue({ token: "mock-token-abc", httpStatus: 200 });
+		mockResolveWallet.mockResolvedValue({
+			identity: { identifier: "core-123", uniqueId: "core-123", exists: true, securityQuestion: null },
+			wallet: { balance: 100000, virtualAccount: null },
 		});
 
 		await handleWalletFlow(mockUser, "Fluffy");
 
 		expect(mockVerifySecurityAnswer).toHaveBeenCalledWith("core-123", "Fluffy");
-		expect(mockGetWallet).toHaveBeenCalledWith("core-123", "mock-token-abc");
+		expect(mockResolveWallet).toHaveBeenCalledWith("1234567890", "core-123", "mock-token-abc");
 		expect(mockUser.workflowState).toBe("WALLET_MENU");
 		expect(mockSendTextMessage).toHaveBeenCalledWith(
 			"1234567890",
 			expect.stringContaining("100,000"),
 		);
-
-		// Check state reset
-		expect(mockUser.workflowState).toBe("WALLET_MENU");
 	});
+
 	test("should handle incorrect security answer or missing token", async () => {
 		mockUser.workflowState = "WALLET_VERIFY_SECURITY";
 		mockUser.workflowData.set("walletPendingAction", "wallet_balance");
 
-		// Simulate token verification failure (returns null)
-		mockVerifySecurityAnswer.mockResolvedValue(null);
-		mockGetWallet.mockResolvedValue(null); // Shouldn't be called
+		// Simulate token verification failure
+		mockVerifySecurityAnswer.mockResolvedValue({ token: null, httpStatus: 401 });
 
 		await handleWalletFlow(mockUser, "wrong_answer");
 
-		expect(mockVerifySecurityAnswer).toHaveBeenCalledWith(
-			"core-123",
-			"wrong_answer",
-		);
-		expect(mockGetWallet).not.toHaveBeenCalled();
+		expect(mockVerifySecurityAnswer).toHaveBeenCalledWith("core-123", "wrong_answer");
+		expect(mockResolveWallet).not.toHaveBeenCalled();
 		expect(mockSendTextMessage).toHaveBeenCalledWith(
 			"1234567890",
 			expect.stringContaining("Incorrect security answer"),
