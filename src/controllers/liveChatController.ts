@@ -115,13 +115,7 @@ export async function endLiveChat(c: Context): Promise<Response> {
       return c.json({ success: false, error: "User does not have an active live chat session" }, 400);
     }
 
-    const lastUserMessage = await Message.findOne({
-      conversationId: sanitizedPhone,
-      from: { $ne: "sys" },
-    })
-      .sort({ timestamp: -1 })
-      .lean()
-      .exec();
+    const lastUserMessage = await Message.findLastNonSystem(sanitizedPhone);
 
     if (lastUserMessage && lastUserMessage.timestamp) {
       const elapsed = Date.now() - new Date(lastUserMessage.timestamp).getTime();

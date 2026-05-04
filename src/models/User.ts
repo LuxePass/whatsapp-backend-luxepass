@@ -1,191 +1,297 @@
-import {
-	applyUpdate,
-	createId,
-	matchesFilter,
-	MemoryQuery,
-	runAggregate,
-} from "./memoryDb.ts";
 import prisma from "../database/prisma.ts";
+import { nanoid } from "nanoid";
 
-type UserRecord = Record<string, any>;
+// ─── Types ────────────────────────────────────────────────────────────────────
 
-function mapToObject(value: unknown): Record<string, unknown> {
-	if (value instanceof Map) {
-		return Object.fromEntries(value.entries());
-	}
-	if (value && typeof value === "object" && !Array.isArray(value)) {
-		return value as Record<string, unknown>;
-	}
-	return {};
+export interface SavedBankAccount {
+	bankName: string;
+	accountNumber: string;
+	accountName: string;
 }
 
-function toStored(record: UserRecord): UserRecord {
-	return {
-		id: record._id,
-		phoneNumber: record.phoneNumber,
-		name: record.name,
-		isLiveChatActive: Boolean(record.isLiveChatActive),
-		workflowState: record.workflowState,
-		workflowData: mapToObject(record.workflowData),
-		lastInteraction: record.lastInteraction,
-		coreUserId: record.coreUserId,
-		assignedPaId: record.assignedPaId,
-		emergencyTransferLockUntil: record.emergencyTransferLockUntil,
-		referralCode: record.referralCode,
-		rewardsEarned: Number(record.rewardsEarned || 0),
-		savedBankAccounts: Array.isArray(record.savedBankAccounts) ? record.savedBankAccounts : [],
-		createdAt: record.createdAt,
-		updatedAt: record.updatedAt,
-	};
+export interface UserData {
+	id: string;
+	phoneNumber: string;
+	name: string;
+	isLiveChatActive: boolean;
+	workflowState: string;
+	workflowData: Map<string, string>;
+	lastInteraction: Date;
+	coreUserId?: string | null;
+	assignedPaId?: string | null;
+	emergencyTransferLockUntil?: Date | null;
+	referralCode?: string | null;
+	rewardsEarned: number;
+	savedBankAccounts: SavedBankAccount[];
+	createdAt: Date;
+	updatedAt: Date;
 }
 
-function fromStored(record: UserRecord): UserRecord {
-	const workflowDataObject =
-		record.workflowData && typeof record.workflowData === "object" ? record.workflowData : {};
-	return {
-		_id: record.id,
-		phoneNumber: record.phoneNumber,
-		name: record.name || "",
-		isLiveChatActive: Boolean(record.isLiveChatActive),
-		workflowState: record.workflowState || "MAIN_MENU",
-		workflowData: new Map(Object.entries(workflowDataObject)),
-		lastInteraction: record.lastInteraction,
-		coreUserId: record.coreUserId,
-		assignedPaId: record.assignedPaId,
-		emergencyTransferLockUntil: record.emergencyTransferLockUntil,
-		referralCode: record.referralCode,
-		rewardsEarned: Number(record.rewardsEarned || 0),
-		savedBankAccounts: Array.isArray(record.savedBankAccounts) ? record.savedBankAccounts : [],
-		createdAt: record.createdAt,
-		updatedAt: record.updatedAt,
-	};
-}
+// ─── UserDocument class ───────────────────────────────────────────────────────
 
-async function loadUsers(filter: UserRecord = {}): Promise<UserRecord[]> {
-	const records = await prisma.user.findMany();
-	return records.map((record) => fromStored(record)).filter((item) => matchesFilter(item, filter));
-}
+export class UserDocument implements UserData {
+	id: string;
+	phoneNumber: string;
+	name: string;
+	isLiveChatActive: boolean;
+	workflowState: string;
+	workflowData: Map<string, string>;
+	lastInteraction: Date;
+	coreUserId?: string | null;
+	assignedPaId?: string | null;
+	emergencyTransferLockUntil?: Date | null;
+	referralCode?: string | null;
+	rewardsEarned: number;
+	savedBankAccounts: SavedBankAccount[];
+	createdAt: Date;
+	updatedAt: Date;
 
-class UserDocument {
-	[key: string]: any;
-
-	constructor(data: UserRecord) {
-		Object.assign(this, data);
+	constructor(data: UserData) {
+		this.id = data.id;
+		this.phoneNumber = data.phoneNumber;
+		this.name = data.name;
+		this.isLiveChatActive = data.isLiveChatActive;
+		this.workflowState = data.workflowState;
+		this.workflowData = data.workflowData instanceof Map
+			? data.workflowData
+			: new Map(Object.entries(data.workflowData ?? {}));
+		this.lastInteraction = data.lastInteraction;
+		this.coreUserId = data.coreUserId;
+		this.assignedPaId = data.assignedPaId;
+		this.emergencyTransferLockUntil = data.emergencyTransferLockUntil;
+		this.referralCode = data.referralCode;
+		this.rewardsEarned = data.rewardsEarned;
+		this.savedBankAccounts = data.savedBankAccounts;
+		this.createdAt = data.createdAt;
+		this.updatedAt = data.updatedAt;
 	}
 
-	toObject() {
-		return structuredClone({ ...this });
-	}
-
-	async save() {
-		const now = new Date();
-		this.updatedAt = now;
-		if (!this.createdAt) this.createdAt = now;
-		if (!this.workflowData) this.workflowData = new Map();
-		if (!(this.workflowData instanceof Map)) {
-			this.workflowData = new Map(Object.entries(this.workflowData));
-		}
-
-		const serialized = this.toObject();
-		await prisma.user.upsert({
-			where: { id: serialized._id },
-			create: toStored(serialized) as any,
-			update: toStored(serialized) as any,
+	async save(): Promise<this> {
+		this.updatedAt = new Date();
+		await prisma.user.update({
+			where: { id: this.id },
+			data: serializeForPrisma(this),
 		});
 		return this;
 	}
 }
 
-function hydrate(record: UserRecord): UserDocument {
-	const next = structuredClone(record);
-	if (!next.workflowData) next.workflowData = new Map();
-	if (!(next.workflowData instanceof Map)) {
-		next.workflowData = new Map(Object.entries(next.workflowData));
-	}
-	return new UserDocument(next);
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function generateId(): string {
+	return `usr_${nanoid(16)}`;
 }
 
-function queryMany(filter: UserRecord = {}) {
-	return new MemoryQuery(
-		() => loadUsers(filter),
-		"many",
-		hydrate,
-	);
+function serializeForPrisma(doc: UserData): Record<string, unknown> {
+	return {
+		phoneNumber: doc.phoneNumber,
+		name: doc.name,
+		isLiveChatActive: doc.isLiveChatActive,
+		workflowState: doc.workflowState,
+		workflowData: doc.workflowData instanceof Map
+			? Object.fromEntries(doc.workflowData.entries())
+			: (doc.workflowData ?? {}),
+		lastInteraction: doc.lastInteraction,
+		coreUserId: doc.coreUserId ?? null,
+		assignedPaId: doc.assignedPaId ?? null,
+		emergencyTransferLockUntil: doc.emergencyTransferLockUntil ?? null,
+		referralCode: doc.referralCode ?? null,
+		rewardsEarned: doc.rewardsEarned,
+		savedBankAccounts: Array.isArray(doc.savedBankAccounts) ? doc.savedBankAccounts : [],
+		updatedAt: new Date(),
+	};
 }
 
-function queryOne(filter: UserRecord = {}) {
-	return new MemoryQuery(
-		() => loadUsers(filter),
-		"one",
-		hydrate,
-	);
+function fromPrisma(record: Record<string, unknown>): UserDocument {
+	const workflowDataRaw =
+		record.workflowData && typeof record.workflowData === "object" && !Array.isArray(record.workflowData)
+			? (record.workflowData as Record<string, unknown>)
+			: {};
+
+	return new UserDocument({
+		id: record.id as string,
+		phoneNumber: record.phoneNumber as string,
+		name: (record.name as string) || "",
+		isLiveChatActive: Boolean(record.isLiveChatActive),
+		workflowState: (record.workflowState as string) || "MAIN_MENU",
+		workflowData: new Map(Object.entries(workflowDataRaw).map(([k, v]) => [k, String(v ?? "")])) as Map<string, string>,
+		lastInteraction: record.lastInteraction as Date,
+		coreUserId: record.coreUserId as string | null,
+		assignedPaId: record.assignedPaId as string | null,
+		emergencyTransferLockUntil: record.emergencyTransferLockUntil as Date | null,
+		referralCode: record.referralCode as string | null,
+		rewardsEarned: Number(record.rewardsEarned ?? 0),
+		savedBankAccounts: Array.isArray(record.savedBankAccounts)
+			? (record.savedBankAccounts as SavedBankAccount[])
+			: [],
+		createdAt: record.createdAt as Date,
+		updatedAt: record.updatedAt as Date,
+	});
 }
+
+// ─── User model ───────────────────────────────────────────────────────────────
 
 const User = {
-	async create(payload: UserRecord) {
+	async create(payload: Partial<UserData> & { phoneNumber: string }): Promise<UserDocument> {
 		const now = new Date();
-		const doc = hydrate({
-			_id: createId("usr"),
-			phoneNumber: payload.phoneNumber,
-			name: payload.name || "",
-			isLiveChatActive: Boolean(payload.isLiveChatActive),
-			workflowState: payload.workflowState || "MAIN_MENU",
-			workflowData: payload.workflowData || new Map(),
-			lastInteraction: payload.lastInteraction || now,
-			coreUserId: payload.coreUserId,
-			assignedPaId: payload.assignedPaId,
-			emergencyTransferLockUntil: payload.emergencyTransferLockUntil,
-			referralCode: payload.referralCode,
-			rewardsEarned: Number(payload.rewardsEarned || 0),
-			savedBankAccounts: payload.savedBankAccounts || [],
-			createdAt: now,
-			updatedAt: now,
+		const id = generateId();
+		const created = await prisma.user.create({
+			data: {
+				id,
+				phoneNumber: payload.phoneNumber,
+				name: payload.name || "",
+				isLiveChatActive: Boolean(payload.isLiveChatActive),
+				workflowState: payload.workflowState || "MAIN_MENU",
+				workflowData: payload.workflowData instanceof Map
+					? Object.fromEntries(payload.workflowData.entries())
+					: (payload.workflowData ?? {}),
+				lastInteraction: payload.lastInteraction || now,
+				coreUserId: payload.coreUserId ?? null,
+				assignedPaId: payload.assignedPaId ?? null,
+				emergencyTransferLockUntil: payload.emergencyTransferLockUntil ?? null,
+				referralCode: payload.referralCode ?? null,
+				rewardsEarned: Number(payload.rewardsEarned ?? 0),
+				savedBankAccounts: Array.isArray(payload.savedBankAccounts) ? payload.savedBankAccounts : [],
+				createdAt: now,
+				updatedAt: now,
+			} as any,
 		});
-		await doc.save();
-		return doc;
+		return fromPrisma(created as unknown as Record<string, unknown>);
 	},
 
-	find(filter: UserRecord = {}) {
-		return queryMany(filter);
+	async findOne(filter: {
+		phoneNumber?: string;
+		coreUserId?: string;
+		referralCode?: string;
+		id?: string;
+	}): Promise<UserDocument | null> {
+		const where: Record<string, unknown> = {};
+		if (filter.id) where.id = filter.id;
+		if (filter.phoneNumber !== undefined) where.phoneNumber = filter.phoneNumber;
+		if (filter.coreUserId !== undefined) where.coreUserId = filter.coreUserId;
+		if (filter.referralCode !== undefined) where.referralCode = filter.referralCode;
+		const found = await prisma.user.findFirst({ where: where as any });
+		return found ? fromPrisma(found as unknown as Record<string, unknown>) : null;
 	},
 
-	findOne(filter: UserRecord = {}) {
-		return queryOne(filter);
+	async findByPhoneOrCoreId(phoneNumber: string, coreUserId?: string | null): Promise<UserDocument | null> {
+		const orClauses: Record<string, unknown>[] = [{ phoneNumber }];
+		if (coreUserId) orClauses.push({ coreUserId });
+		const found = await prisma.user.findFirst({ where: { OR: orClauses } as any });
+		return found ? fromPrisma(found as unknown as Record<string, unknown>) : null;
 	},
 
-	async findById(id: string) {
+	async findById(id: string): Promise<UserDocument | null> {
 		const found = await prisma.user.findUnique({ where: { id } });
-		return found ? hydrate(fromStored(found)) : null;
+		return found ? fromPrisma(found as unknown as Record<string, unknown>) : null;
 	},
 
-	async updateOne(filter: UserRecord, update: UserRecord) {
-		const users = await loadUsers(filter);
-		const found = users[0];
-		if (!found) return { acknowledged: true, matchedCount: 0, modifiedCount: 0 };
-		const next = applyUpdate(found, update);
-		next.updatedAt = new Date();
-		await prisma.user.update({ where: { id: next._id }, data: toStored(next) as any });
-		return { acknowledged: true, matchedCount: 1, modifiedCount: 1 };
+	async findMany(filter: {
+		assignedPaId?: string | null;
+		createdAtGte?: Date;
+		createdAtLte?: Date;
+		limit?: number;
+	} = {}): Promise<UserDocument[]> {
+		const where: Record<string, unknown> = {};
+		if (filter.assignedPaId !== undefined) where.assignedPaId = filter.assignedPaId;
+		if (filter.createdAtGte || filter.createdAtLte) {
+			where.createdAt = {
+				...(filter.createdAtGte ? { gte: filter.createdAtGte } : {}),
+				...(filter.createdAtLte ? { lte: filter.createdAtLte } : {}),
+			};
+		}
+		const records = await prisma.user.findMany({
+			where: where as any,
+			orderBy: { createdAt: "desc" },
+			...(filter.limit ? { take: filter.limit } : {}),
+		});
+		return records.map((r) => fromPrisma(r as unknown as Record<string, unknown>));
 	},
 
-	async findOneAndUpdate(filter: UserRecord, update: UserRecord) {
-		const users = await loadUsers(filter);
-		const found = users[0];
-		if (!found) return null;
-		const next = applyUpdate(found, update);
-		next.updatedAt = new Date();
-		await prisma.user.update({ where: { id: next._id }, data: toStored(next) as any });
-		return hydrate(next);
+	async count(filter: {
+		assignedPaId?: string | null;
+		createdAtGte?: Date;
+		createdAtLte?: Date;
+	} = {}): Promise<number> {
+		const where: Record<string, unknown> = {};
+		if (filter.assignedPaId !== undefined) where.assignedPaId = filter.assignedPaId;
+		if (filter.createdAtGte || filter.createdAtLte) {
+			where.createdAt = {
+				...(filter.createdAtGte ? { gte: filter.createdAtGte } : {}),
+				...(filter.createdAtLte ? { lte: filter.createdAtLte } : {}),
+			};
+		}
+		return prisma.user.count({ where: where as any });
 	},
 
-	async countDocuments(filter: UserRecord = {}) {
-		const users = await loadUsers(filter);
-		return users.length;
+	async updateById(id: string, data: Partial<Omit<UserData, "id" | "createdAt">>): Promise<UserDocument> {
+		const updated = await prisma.user.update({
+			where: { id },
+			data: {
+				...data,
+				workflowData: data.workflowData instanceof Map
+					? Object.fromEntries(data.workflowData.entries())
+					: (data.workflowData as any),
+				updatedAt: new Date(),
+			} as any,
+		});
+		return fromPrisma(updated as unknown as Record<string, unknown>);
 	},
 
-	async aggregate(pipeline: any[]) {
-		const users = await loadUsers();
-		return runAggregate(users.map((item) => structuredClone(item)), pipeline);
+	async getReferralStats(options: { paId?: string; isAdmin?: boolean } = {}) {
+		const now = new Date();
+		const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+		const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+		const prevMonthEnd = new Date(currentMonthStart.getTime() - 1);
+
+		const [total, currentMonth, prevMonth, topReferrers, recentReferrers, rewardsAgg] = await Promise.all([
+			prisma.user.count({ where: { referralCode: { not: null } } }),
+			prisma.user.count({ where: { referralCode: { not: null }, createdAt: { gte: currentMonthStart } } }),
+			prisma.user.count({
+				where: { referralCode: { not: null }, createdAt: { gte: prevMonthStart, lte: prevMonthEnd } },
+			}),
+			prisma.user.findMany({
+				where: { referralCode: { not: null }, rewardsEarned: { gt: 0 } },
+				orderBy: { rewardsEarned: "desc" },
+				take: 10,
+				select: { id: true, name: true, phoneNumber: true, referralCode: true, rewardsEarned: true },
+			}),
+			prisma.user.findMany({
+				where: { referralCode: { not: null } },
+				orderBy: { createdAt: "desc" },
+				take: 50,
+				select: { id: true, name: true, phoneNumber: true, referralCode: true, rewardsEarned: true, createdAt: true, workflowState: true },
+			}),
+			prisma.user.aggregate({ _sum: { rewardsEarned: true }, where: { rewardsEarned: { gt: 0 } } }),
+		]);
+
+		let growthPercentage = 0;
+		if (prevMonth === 0) {
+			growthPercentage = currentMonth > 0 ? 100 : 0;
+		} else {
+			growthPercentage = Number((((currentMonth - prevMonth) / prevMonth) * 100).toFixed(1));
+		}
+
+		return {
+			totalReferrals: total,
+			totalRewardsEarned: rewardsAgg._sum.rewardsEarned ?? 0,
+			growthPercentage,
+			topReferrers: topReferrers.map((u) => ({
+				referralCode: u.referralCode,
+				name: u.name || "Unknown",
+				phoneNumber: u.phoneNumber,
+				rewardsEarned: u.rewardsEarned,
+			})),
+			recentReferrers: recentReferrers.map((u) => ({
+				id: u.id,
+				name: u.name || "Unknown",
+				phoneNumber: u.phoneNumber,
+				referralCode: u.referralCode,
+				rewardsEarned: u.rewardsEarned,
+				createdAt: u.createdAt,
+				workflowState: u.workflowState,
+			})),
+		};
 	},
 };
 

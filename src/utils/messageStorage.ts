@@ -60,12 +60,12 @@ export async function addMessage(message: MessagePayload) {
     if (from && from !== "sys") {
       await Conversation.findOneAndUpdate(
         { conversationId },
-        { lastMessage: content, lastMessageTime: newMessage.timestamp, $inc: { unreadCount: 1 } }
+        { lastMessage: content, lastMessageTime: newMessage.timestamp, incrementUnread: true },
       );
     } else {
       await Conversation.findOneAndUpdate(
         { conversationId },
-        { lastMessage: content, lastMessageTime: newMessage.timestamp }
+        { lastMessage: content, lastMessageTime: newMessage.timestamp },
       );
     }
 
@@ -78,14 +78,9 @@ export async function addMessage(message: MessagePayload) {
 
 export async function updateMessageStatus(messageId: string, status: string): Promise<boolean> {
   try {
-    const message = await Message.findOne({ messageId });
-    if (message) {
-      message.status = status;
-      await message.save();
-      logger.info("Message status updated", { messageId, status });
-      return true;
-    }
-    return false;
+    await Message.updateStatus(messageId, status);
+    logger.info("Message status updated", { messageId, status });
+    return true;
   } catch (error) {
     logger.error("Error updating message status", { error: (error as Error).message });
     return false;
@@ -94,9 +89,7 @@ export async function updateMessageStatus(messageId: string, status: string): Pr
 
 export async function getAllConversations(paId: string | null = null) {
   try {
-    const filter: Record<string, unknown> = {};
-    if (paId) filter.assignedPaId = paId;
-    return await Conversation.find(filter).sort({ lastMessageTime: -1 });
+    return await Conversation.findMany(paId ? { assignedPaId: paId } : {});
   } catch (error) {
     logger.error("Error getting all conversations", { error: (error as Error).message });
     return [];
@@ -105,7 +98,7 @@ export async function getAllConversations(paId: string | null = null) {
 
 export async function getMessagesByConversation(conversationId: string) {
   try {
-    return await Message.find({ conversationId }).sort({ timestamp: 1 });
+    return await Message.findMany({ conversationId, orderByTimestamp: "asc" });
   } catch (error) {
     logger.error("Error getting messages", { error: (error as Error).message });
     return [];

@@ -93,7 +93,7 @@ export interface UserDoc {
   phoneNumber: string;
   name: string;
   isLiveChatActive: boolean;
-  workflowState: WorkflowStateKey;
+  workflowState: string;
   workflowData: Map<string, string>;
   coreUserId?: string;
   assignedPaId?: string;
@@ -393,7 +393,7 @@ async function handleOnboarding(user: UserDoc, message: string): Promise<void> {
       logger.info("Referral code captured during onboarding", { phone: user.phoneNumber, code: referralInput });
 
       try {
-        const referrer = (await User.findOne({ referralCode: referralInput })) as unknown as UserDoc | null;
+        const referrer = await User.findOne({ referralCode: referralInput });
         if (referrer) {
           const rewardAmount = 500;
           referrer.rewardsEarned = (referrer.rewardsEarned || 0) + rewardAmount;
@@ -535,18 +535,18 @@ export async function handleWorkflow(from: string, message: string, name: string
   const phoneNumber = from.replace(/\D/g, "");
 
   try {
-    let user = (await User.findOne({ phoneNumber })) as unknown as UserDoc | null;
+    let user = await User.findOne({ phoneNumber });
 
     if (!user) {
       const coreCheck = await backendService.checkUserExists(phoneNumber);
 
       if (coreCheck?.exists === true) {
-        user = (await User.create({
+        user = await User.create({
           phoneNumber,
           name: name || "",
           ...(coreCheck.uniqueId && { coreUserId: coreCheck.uniqueId }),
           workflowState: WorkflowState.MAIN_MENU,
-        })) as unknown as UserDoc;
+        });
         logger.info("Existing core-backend user synced — skipping onboarding", {
           phoneNumber,
           coreUserId: coreCheck.uniqueId ?? "not provided",
@@ -575,13 +575,13 @@ export async function handleWorkflow(from: string, message: string, name: string
       }
 
       if (isLiveChatRequest(message)) {
-        user = (await User.create({
+        user = await User.create({
           phoneNumber,
           name: name || "",
           ...(seededCoreUserId && { coreUserId: seededCoreUserId }),
           workflowState: WorkflowState.PERSONAL_ASSISTANT,
           isLiveChatActive: true,
-        })) as unknown as UserDoc;
+        });
         await autoAssignPA(user);
         await sendTextMessage(
           phoneNumber,
@@ -592,12 +592,12 @@ export async function handleWorkflow(from: string, message: string, name: string
       }
 
       const initialState = name ? WorkflowState.ONBOARDING_EMAIL : WorkflowState.ONBOARDING_NAME;
-      user = (await User.create({
+      user = await User.create({
         phoneNumber,
         name: name || "",
         ...(seededCoreUserId && { coreUserId: seededCoreUserId }),
         workflowState: initialState,
-      })) as unknown as UserDoc;
+      });
 
       if (name) {
         await sendTextMessage(
@@ -638,7 +638,7 @@ export async function handleWorkflow(from: string, message: string, name: string
     const hasActiveEmergencyLock =
       user.emergencyTransferLockUntil != null && new Date(user.emergencyTransferLockUntil) > new Date();
 
-    if (hasActiveEmergencyLock && !isMenuCommand(normalized, user.workflowState)) {
+    if (hasActiveEmergencyLock && !isMenuCommand(normalized, user.workflowState as WorkflowStateKey)) {
       const lockUntil = new Date(user.emergencyTransferLockUntil!).toLocaleTimeString();
       await sendTextMessage(
         phoneNumber,
@@ -652,7 +652,7 @@ export async function handleWorkflow(from: string, message: string, name: string
       await user.save();
     }
 
-    if (isMenuCommand(normalized, user.workflowState)) {
+    if (isMenuCommand(normalized, user.workflowState as WorkflowStateKey)) {
       const wasLiveChat = user.isLiveChatActive;
       user.workflowState = WorkflowState.MAIN_MENU;
       user.workflowData = new Map();
@@ -660,7 +660,7 @@ export async function handleWorkflow(from: string, message: string, name: string
       user.assignedPaId = undefined;
       await user.save();
       if (wasLiveChat) {
-        await Conversation.updateOne({ conversationId: phoneNumber }, { $unset: { assignedPaId: "" } });
+        await Conversation.updateOne({ conversationId: phoneNumber }, { assignedPaId: null });
         logger.info("User exited live chat via menu command", { phoneNumber, message: normalized });
       }
       await sendWelcomeMenu(phoneNumber, user.name);
@@ -703,7 +703,7 @@ export async function handleWorkflow(from: string, message: string, name: string
 // ─── State Router ─────────────────────────────────────────────────────────────
 
 export async function routeWorkflowState(user: UserDoc, message: string): Promise<void> {
-  const { workflowState: state } = user;
+  const state = user.workflowState as WorkflowStateKey;
 
   if (ONBOARDING_STATES.has(state)) return handleOnboarding(user, message);
   if (state === WorkflowState.MAIN_MENU) return handleMainMenu(user, message);
@@ -2161,7 +2161,7 @@ async function autoAssignPA(user: UserDoc): Promise<Record<string, unknown> | nu
       return null;
     }
 
-    const conversations = (await Conversation.find({ assignedPaId: { $ne: null } })) as Record<string, unknown>[];
+    const conversations = await Conversation.findMany({ assignedPaIdNotNull: true });
     const paCounts = new Map<string, number>(pas.map((pa) => [String(pa.id), 0]));
     for (const c of conversations) {
       const paId = String(c.assignedPaId);

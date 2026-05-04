@@ -17,11 +17,7 @@ export async function getConversations(c: Context): Promise<Response> {
       }, 400);
     }
 
-    const conversations = await Conversation.find({
-      assignedPaId: paId,
-    }).sort({
-      lastMessageTime: -1,
-    });
+    const conversations = await Conversation.findMany({ assignedPaId: paId });
 
     const formatted = conversations
       .map((conv) => {

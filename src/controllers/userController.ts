@@ -9,9 +9,7 @@ export async function getBankAccounts(c: Context): Promise<Response> {
 	try {
 		const identifier = c.req.param("identifier");
 
-		const user = await User.findOne({
-			$or: [{ phoneNumber: identifier }, { coreUserId: identifier }],
-		});
+		const user = await User.findByPhoneOrCoreId(identifier, identifier);
 
 		if (!user) {
 			return c.json({ success: false, error: { message: "User not found" } }, 404);
