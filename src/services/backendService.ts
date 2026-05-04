@@ -4,7 +4,7 @@ import logger from "../config/logger.ts";
 // ─── HTTP Client ───────────────────────────────────────────────────────────────
 
 const CORE_BACKEND_URL =
-	process.env.CORE_BACKEND_URL || "https://backend-luxepass.onrender.com/api/v1";
+	process.env.CORE_BACKEND_URL || "https://backend-luxepass-sruf.onrender.com/api/v1";
 
 /**
  * Axios instance with a 15-second request timeout.
@@ -354,29 +354,30 @@ export async function verifySecurityAnswer(
 }
 
 /**
- * Retrieves the wallet for a user.
+ * Retrieves the wallet for a user via the internal endpoint.
+ * Uses the internal secret + security verification token — no user JWT needed.
  *
- * @param {string}      identifier     - coreUserId or phone
- * @param {string|null} token          - Security verification token (optional)
- * @param {string|null} securityAnswer - Security answer header (optional)
+ * @param {string}      identifier - coreUserId or phone
+ * @param {string|null} token      - Security verification token from verifySecurityAnswer
  * @returns {Promise<Object|null>}
  */
 export async function getWallet(
 	identifier,
 	token = null,
-	securityAnswer = null,
 ) {
-	const headers = {};
-	headers["X-Unique-Id"] = identifier;
-	if (token) headers["X-Security-Verification-Token"] = token;
-	if (token) headers["X-Verification-Token"] = token;
-	// DO NOT pass plain text securityAnswer as a token header
-	// if (securityAnswer) headers["X-Verification-Token"] = securityAnswer;
+	const headers: Record<string, string> = {
+		"x-whatsapp-backend-secret": process.env.CORE_BACKEND_INTERNAL_SECRET ?? "",
+		"X-Unique-Id": identifier,
+	};
+	if (token) {
+		headers["X-Security-Verification-Token"] = token;
+		headers["X-Verification-Token"] = token;
+	}
 
 	try {
 		const response = await withRetry(
 			() =>
-				apiClient.get(`/wallet/me`, {
+				apiClient.get(`/wallet/internal/${encodeURIComponent(identifier)}`, {
 					headers,
 				}),
 			{ label: `getWallet(${identifier})` },
