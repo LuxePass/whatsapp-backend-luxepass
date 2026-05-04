@@ -311,6 +311,44 @@ export function isLiveChatRequest(text: string): boolean {
   );
 }
 
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function parseWalletSecurityAnswer(raw: string, securityQuestion?: string): { answer: string | null; invalidFormat: boolean } {
+  const input = String(raw ?? "").trim();
+  if (!input) return { answer: null, invalidFormat: true };
+
+  // If user sends only the question index, they likely misunderstood the prompt.
+  if (/^[1-5]$/.test(input)) return { answer: null, invalidFormat: true };
+
+  // Support "1. answer" or "1) answer" formats.
+  const numberedAnswer = input.match(/^[1-5][\).\-\s]+(.+)$/);
+  if (numberedAnswer?.[1]?.trim()) {
+    return { answer: numberedAnswer[1].trim(), invalidFormat: false };
+  }
+
+  if (securityQuestion) {
+    const normalizedQuestion = normalizeMessage(securityQuestion);
+    const normalizedInput = normalizeMessage(input);
+
+    // User sent only the question text again.
+    if (normalizedInput === normalizedQuestion) {
+      return { answer: null, invalidFormat: true };
+    }
+
+    // Accept "<question>? <answer>" and "<question>: <answer>" formats.
+    const escapedQuestion = escapeRegex(securityQuestion.trim());
+    const inlinePattern = new RegExp(`^\\s*"?${escapedQuestion}"?\\s*[:\\-]?\\s*(.+)$`, "i");
+    const inlineMatch = input.match(inlinePattern);
+    if (inlineMatch?.[1]?.trim()) {
+      return { answer: inlineMatch[1].trim(), invalidFormat: false };
+    }
+  }
+
+  return { answer: input, invalidFormat: false };
+}
+
 // ─── Onboarding ───────────────────────────────────────────────────────────────
 
 async function handleOnboarding(user: UserDoc, message: string): Promise<void> {
@@ -1343,7 +1381,19 @@ export async function handleWalletFlow(user: UserDoc, message: string): Promise<
   }
 
   if (user.workflowState === WorkflowState.WALLET_VERIFY_SECURITY) {
-    const securityAnswer = message.trim();
+    const expectedSecurityQuestion = user.workflowData.get("walletSecurityQuestion") as string | undefined;
+    const parsedSecurityInput = parseWalletSecurityAnswer(message, expectedSecurityQuestion);
+    if (!parsedSecurityInput.answer) {
+      const questionHint = expectedSecurityQuestion ? `\n\nQuestion: *\"${expectedSecurityQuestion}\"*` : "";
+      await sendTextMessage(
+        phoneNumber,
+        "Please send only your *security answer* (not the question text or option number).\n\n" +
+          "Example: if your answer is *Bullet*, just send: *Bullet*" +
+          questionHint
+      );
+      return;
+    }
+    const securityAnswer = parsedSecurityInput.answer;
     const pendingAction = user.workflowData.get("walletPendingAction");
     let coreUserId = user.coreUserId ?? (user.workflowData.get("coreUserId") as string | undefined);
 
@@ -1623,6 +1673,7 @@ export async function handleWalletFlow(user: UserDoc, message: string): Promise<
 async function promptWalletSecurityVerification(user: UserDoc, pendingAction: string): Promise<void> {
   user.workflowState = WorkflowState.WALLET_VERIFY_SECURITY;
   user.workflowData.set("walletPendingAction", pendingAction);
+  user.workflowData.delete("walletSecurityQuestion");
 
   let prompt = "🔐 *Security Verification*\n\nTo access your wallet, please answer your security question:";
   try {
@@ -1636,13 +1687,15 @@ async function promptWalletSecurityVerification(user: UserDoc, pendingAction: st
       });
     }
     if (securityInfo?.securityQuestion) {
+      user.workflowData.set("walletSecurityQuestion", securityInfo.securityQuestion);
       prompt += `\n\n*"${securityInfo.securityQuestion}"*`;
+      prompt += "\n\nReply with *only your answer* (example: *Bullet*).";
     } else {
-      prompt += "\n\n_(Enter the security answer you set during registration)_";
+      prompt += "\n\n_(Enter only the security answer you set during registration)_";
     }
   } catch (err) {
     logger.error("Error fetching security question for wallet prompt", { error: (err as Error).message });
-    prompt += "\n\n_(Enter the security answer you set during registration)_";
+    prompt += "\n\n_(Enter only the security answer you set during registration)_";
   }
 
   await user.save();
