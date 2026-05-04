@@ -196,7 +196,7 @@ export async function registerUser(userData) {
 				}),
 			{ label: "registerUser" },
 		);
-		return response.data.success ? response.data.data.user : null;
+		return response.data.success ? response.data.data : null;
 	} catch (err) {
 		if (err.response?.status === 409) {
 			// User already exists — fetch and return their record instead
