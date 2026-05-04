@@ -587,15 +587,24 @@ export async function createEmergencyTransfer(data) {
  */
 export async function resolveAccount(
 	accountNumber,
-	bankCode,
+	bankNameOrCode,
 	securityAnswer,
 	uniqueId,
 ) {
+	// Determine whether the caller passed a bank code (numeric/short) or a name.
+	// Bank codes are typically short numeric strings (e.g. "058", "999992").
+	// Bank names are free text (e.g. "OPay", "GTBank"). Send accordingly so
+	// the core backend can look up the code via Paystack when given a name.
+	const isCode = /^\d{3,6}$/.test(String(bankNameOrCode ?? "").trim());
+	const params = isCode
+		? { accountNumber, bankCode: bankNameOrCode, securityAnswer, uniqueId }
+		: { accountNumber, bankName: bankNameOrCode, securityAnswer, uniqueId };
+
 	try {
 		const response = await withRetry(
 			() =>
 				apiClient.get("/transfers/resolve-account", {
-					params: { accountNumber, bankCode, securityAnswer, uniqueId },
+					params,
 				}),
 			{ retries: 2, label: "resolveAccount" },
 		);
