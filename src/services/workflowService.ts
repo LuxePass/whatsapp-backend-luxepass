@@ -117,23 +117,10 @@ const EMERGENCY_TRANSFER_LOCK_MINUTES = 15;
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
-function isLikelyTestVirtualAccount(account: {
-  accountNumber?: string;
-} | null | undefined): boolean {
-  // Paystack test virtual accounts always have account numbers starting with 1230.
-  // Name/bank checks are intentionally omitted — they cause false positives (e.g. "managed account").
-  if (!account) return false;
-  return /^1230\d{6,}$/.test(String(account.accountNumber || ""));
-}
-
 function selectPreferredVirtualAccount(wallet: any) {
   const list = Array.isArray(wallet?.virtualAccounts) ? wallet.virtualAccounts : [];
-  const preferred = list.find((acc: any) => !isLikelyTestVirtualAccount(acc));
-  if (preferred) return preferred;
-  // Never fall back to a test account — return null so the caller shows "being prepared"
-  const fallbackSingle = wallet?.virtualAccount;
-  if (fallbackSingle && !isLikelyTestVirtualAccount(fallbackSingle)) return fallbackSingle;
-  return null;
+  if (list.length > 0) return list[0];
+  return wallet?.virtualAccount ?? null;
 }
 
 const ONBOARDING_STATES = new Set<WorkflowStateKey>([
