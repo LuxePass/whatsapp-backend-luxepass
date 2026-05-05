@@ -1384,11 +1384,16 @@ async function handleReferralFlow(user: UserDoc, message: string): Promise<void>
     await user.save();
   }
 
-  const referralLink = `https://wa.me/${process.env.WHATSAPP_PHONE_NUMBER}?text=Hi, I want to join LuxePass using referral code ${user.referralCode}`;
+  const waPhone = process.env.WHATSAPP_PHONE_NUMBER?.replace(/\D/g, "");
+  const referralLink = waPhone
+    ? `https://wa.me/${waPhone}?text=Hi, I want to join LuxePass using referral code ${user.referralCode}`
+    : null;
 
   await sendTextMessage(
     user.phoneNumber,
-    `*Referral Program* 🎁\n\nInvite friends to LuxePass and earn rewards!\n\n*Your Referral Link:* ${referralLink}\n\n*Earnings Summary* 💰\nTotal Earned: ₦${(user.rewardsEarned || 0).toLocaleString()}\nMin Withdrawal: ₦2,000\n\n*How to Withdraw* 🏦\nOnce you reach the minimum balance, reply with *WITHDRAW* or contact our concierge via this chat to process your payout.\n\nShare your link with friends today! 🚀`
+    `*Referral Program* 🎁\n\nInvite friends to LuxePass and earn rewards!\n\n*Your Referral Code:* \`${user.referralCode}\`${
+      referralLink ? `\n*Your Referral Link:* ${referralLink}` : ""
+    }\n\n*Earnings Summary* 💰\nTotal Earned: ₦${(user.rewardsEarned || 0).toLocaleString()}\nMin Withdrawal: ₦2,000\n\n*How to Withdraw* 🏦\nOnce you reach the minimum balance, reply with *WITHDRAW* or contact our concierge via this chat to process your payout.\n\nShare your code with friends today! 🚀`
   );
 
   user.workflowState = WorkflowState.MAIN_MENU;
@@ -1471,7 +1476,7 @@ export async function handleWalletFlow(user: UserDoc, message: string): Promise<
             "⛔ Too many incorrect attempts.\n\n" +
             "For your security, wallet access is temporarily locked. Please wait 15 minutes and try again.";
         } else {
-          errMsg = "❌ Incorrect security answer. Please try again or type *Menu* to go back.";
+          errMsg = "❌ Incorrect security answer. Please try again or type *Menu* to go back.\n\n💡 *Forgot your answer?* From the main menu, go to *Wallet* → *Change Security Q* to set a new one — no old answer needed.";
         }
         await sendTextMessage(phoneNumber, errMsg);
         return;
