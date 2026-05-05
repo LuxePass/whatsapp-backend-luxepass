@@ -130,9 +130,9 @@ function selectPreferredVirtualAccount(wallet: any) {
   const list = Array.isArray(wallet?.virtualAccounts) ? wallet.virtualAccounts : [];
   const preferred = list.find((acc: any) => !isLikelyTestVirtualAccount(acc));
   if (preferred) return preferred;
-  if (list.length > 0) return list[0];
+  // Never fall back to a test account — return null so the caller shows "being prepared"
   const fallbackSingle = wallet?.virtualAccount;
-  if (fallbackSingle) return fallbackSingle;
+  if (fallbackSingle && !isLikelyTestVirtualAccount(fallbackSingle)) return fallbackSingle;
   return null;
 }
 
