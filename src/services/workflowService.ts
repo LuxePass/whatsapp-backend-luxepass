@@ -129,7 +129,6 @@ function isLikelyTestVirtualAccount(account: {
   return (
     bank.includes("test") ||
     name.includes("test") ||
-    name.includes("managed-account") ||
     /^1230\d{6,}$/.test(accountNumber)
   );
 }
@@ -138,8 +137,9 @@ function selectPreferredVirtualAccount(wallet: any) {
   const list = Array.isArray(wallet?.virtualAccounts) ? wallet.virtualAccounts : [];
   const preferred = list.find((acc: any) => !isLikelyTestVirtualAccount(acc));
   if (preferred) return preferred;
+  if (list.length > 0) return list[0];
   const fallbackSingle = wallet?.virtualAccount;
-  if (fallbackSingle && !isLikelyTestVirtualAccount(fallbackSingle)) return fallbackSingle;
+  if (fallbackSingle) return fallbackSingle;
   return null;
 }
 
@@ -539,11 +539,12 @@ async function handleOnboarding(user: UserDoc, message: string): Promise<void> {
         null,
       );
       if (identity.uniqueId && !user.coreUserId) user.coreUserId = identity.uniqueId;
-      if (wallet?.virtualAccount) {
+      const preferredAccount = selectPreferredVirtualAccount(wallet);
+      if (preferredAccount) {
         walletInfo =
-          `\n\n💳 *Your Wallet Details*\nBank: ${wallet.virtualAccount.bankName}` +
-          `\nAccount Name: ${wallet.virtualAccount.accountName}` +
-          `\nAccount Number: ${wallet.virtualAccount.accountNumber}` +
+          `\n\n💳 *Your Wallet Details*\nBank: ${preferredAccount.bankName}` +
+          `\nAccount Name: ${preferredAccount.accountName}` +
+          `\nAccount Number: ${preferredAccount.accountNumber}` +
           `\n\nFund this account to start booking instantly!`;
       }
     } catch (err) {
@@ -1172,11 +1173,12 @@ async function sendBookingSummary(user: UserDoc): Promise<void> {
   let walletInfo = "Wallet details unavailable.";
   try {
     const { wallet } = await backendService.resolveWallet(user.phoneNumber, user.coreUserId ?? null, null);
-    if (wallet?.virtualAccount) {
+    const preferredAccount = selectPreferredVirtualAccount(wallet);
+    if (preferredAccount) {
       walletInfo =
-        `\n🏦 *Fund Your Wallet to Pay*\nBank: ${wallet.virtualAccount.bankName}` +
-        `\nAccount Name: ${wallet.virtualAccount.accountName}` +
-        `\nAccount Number: ${wallet.virtualAccount.accountNumber}` +
+        `\n🏦 *Fund Your Wallet to Pay*\nBank: ${preferredAccount.bankName}` +
+        `\nAccount Name: ${preferredAccount.accountName}` +
+        `\nAccount Number: ${preferredAccount.accountNumber}` +
         `\n\nBalance: ₦${Number(wallet.balance).toLocaleString()}`;
     }
   } catch (err) {
