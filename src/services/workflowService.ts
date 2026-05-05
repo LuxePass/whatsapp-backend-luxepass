@@ -118,19 +118,12 @@ const EMERGENCY_TRANSFER_LOCK_MINUTES = 15;
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 function isLikelyTestVirtualAccount(account: {
-  bankName?: string;
-  accountName?: string;
   accountNumber?: string;
 } | null | undefined): boolean {
+  // Paystack test virtual accounts always have account numbers starting with 1230.
+  // Name/bank checks are intentionally omitted — they cause false positives (e.g. "managed account").
   if (!account) return false;
-  const bank = String(account.bankName || "").toLowerCase();
-  const name = String(account.accountName || "").toLowerCase();
-  const accountNumber = String(account.accountNumber || "");
-  return (
-    bank.includes("test") ||
-    name.includes("test") ||
-    /^1230\d{6,}$/.test(accountNumber)
-  );
+  return /^1230\d{6,}$/.test(String(account.accountNumber || ""));
 }
 
 function selectPreferredVirtualAccount(wallet: any) {
