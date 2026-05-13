@@ -484,6 +484,26 @@ export async function getWallet(
 }
 
 /**
+ * Fetches the security question for a user via the dedicated endpoint.
+ * This is the single source of truth for security question data.
+ *
+ * Returns null if the user has not set a security question.
+ * THROWS on network/server errors so callers can handle backend unavailability explicitly
+ * rather than silently falling back to a generic prompt.
+ *
+ * @param {string} identifier - User uniqueId or normalized phone number
+ * @returns {Promise<string | null>} The security question text, or null if not set
+ */
+export async function getSecurityQuestion(identifier: string): Promise<string | null> {
+	const response = await withRetry(
+		() => apiClient.get("/auth/security-question", { params: { userIdentifier: identifier } }),
+		{ retries: 2, label: "getSecurityQuestion" },
+	);
+	const data = response.data?.data ?? {};
+	return data.question ?? null;
+}
+
+/**
  * Sets a security question and answer for a user.
  *
  * @param {{ userIdentifier: string, question: string, answer: string }} data
@@ -492,7 +512,7 @@ export async function getWallet(
 export async function setSecurityQuestion(data) {
 	try {
 		const response = await withRetry(
-			() => apiClient.post("/auth/security-question", data),
+			() => internalClient.post("/auth/security-question", data),
 			{ retries: 2, label: "setSecurityQuestion" },
 		);
 		return Boolean(response.data.success);
@@ -833,6 +853,7 @@ export default {
 	createBooking,
 	verifySecurityAnswer,
 	getWallet,
+	getSecurityQuestion,
 	setSecurityQuestion,
 	initiateTransfer,
 	getAllPAs,

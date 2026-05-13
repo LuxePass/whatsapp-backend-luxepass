@@ -484,8 +484,8 @@ async function handleOnboarding(user: UserDoc, message: string): Promise<void> {
   }
 
   if (user.workflowState === WorkflowState.ONBOARDING_SECURITY_ANSWER) {
-    if (input.length < 2) {
-      await sendTextMessage(user.phoneNumber, "The answer must be at least 2 characters.");
+    if (input.length < 3) {
+      await sendTextMessage(user.phoneNumber, "The answer must be at least 3 characters.");
       return;
     }
     const question = user.workflowData.get("securityQuestion") ?? "";
@@ -506,6 +506,11 @@ async function handleOnboarding(user: UserDoc, message: string): Promise<void> {
       });
     } catch (err) {
       logger.error("Error setting security question", { phone: user.phoneNumber, error: (err as Error).message });
+      await sendTextMessage(
+        user.phoneNumber,
+        "⚠️ We couldn't save your security question right now. Please try sending your answer again."
+      );
+      return;
     }
 
     user.workflowState = WorkflowState.MAIN_MENU;
@@ -1434,23 +1439,23 @@ export async function handleWalletFlow(user: UserDoc, message: string): Promise<
     const securityAnswer = parsedSecurityInput.answer;
     const pendingAction = user.workflowData.get("walletPendingAction");
 
-    const identity = await backendService.resolveCoreIdentity(
-      user.phoneNumber,
-      user.coreUserId ?? (user.workflowData.get("coreUserId") as string | undefined) ?? null,
-    );
-    if (identity.uniqueId && user.coreUserId !== identity.uniqueId) {
-      user.coreUserId = identity.uniqueId;
-      user.workflowData.set("coreUserId", identity.uniqueId);
-      await user.save();
-      logger.info("Resolved canonical core identity for wallet verification", {
-        phoneNumber,
-        coreUserId: identity.uniqueId,
-      });
-    }
-
-    const identifier = identity.identifier;
-
     try {
+      const identity = await backendService.resolveCoreIdentity(
+        user.phoneNumber,
+        user.coreUserId ?? (user.workflowData.get("coreUserId") as string | undefined) ?? null,
+      );
+      if (identity.uniqueId && user.coreUserId !== identity.uniqueId) {
+        user.coreUserId = identity.uniqueId;
+        user.workflowData.set("coreUserId", identity.uniqueId);
+        await user.save();
+        logger.info("Resolved canonical core identity for wallet verification", {
+          phoneNumber,
+          coreUserId: identity.uniqueId,
+        });
+      }
+
+      const identifier = identity.identifier;
+
       const { token, httpStatus } = await backendService.verifySecurityAnswer(identifier, securityAnswer);
       if (!token) {
         let errMsg: string;
@@ -1570,22 +1575,22 @@ export async function handleWalletFlow(user: UserDoc, message: string): Promise<
 
   if (user.workflowState === WorkflowState.WALLET_CHANGE_SECURITY_ANSWER) {
     const answer = message.trim();
-    if (answer.length < 2) {
-      await sendTextMessage(phoneNumber, "The answer must be at least 2 characters. Please try again.");
+    if (answer.length < 3) {
+      await sendTextMessage(phoneNumber, "The answer must be at least 3 characters. Please try again.");
       return;
     }
     const question = user.workflowData.get("newSecurityQuestion") ?? "";
 
-    const identity = await backendService.resolveCoreIdentity(
-      user.phoneNumber,
-      user.coreUserId ?? (user.workflowData.get("coreUserId") as string | undefined) ?? null,
-    );
-    if (identity.uniqueId && user.coreUserId !== identity.uniqueId) {
-      user.coreUserId = identity.uniqueId;
-      user.workflowData.set("coreUserId", identity.uniqueId);
-    }
-
     try {
+      const identity = await backendService.resolveCoreIdentity(
+        user.phoneNumber,
+        user.coreUserId ?? (user.workflowData.get("coreUserId") as string | undefined) ?? null,
+      );
+      if (identity.uniqueId && user.coreUserId !== identity.uniqueId) {
+        user.coreUserId = identity.uniqueId;
+        user.workflowData.set("coreUserId", identity.uniqueId);
+      }
+
       const success = await backendService.setSecurityQuestion({ userIdentifier: identity.identifier, question, answer });
       if (!success) throw new Error("setSecurityQuestion returned false");
       user.workflowData.delete("newSecurityQuestion");
@@ -1710,11 +1715,6 @@ export async function handleWalletFlow(user: UserDoc, message: string): Promise<
 }
 
 async function promptWalletSecurityVerification(user: UserDoc, pendingAction: string): Promise<void> {
-  user.workflowState = WorkflowState.WALLET_VERIFY_SECURITY;
-  user.workflowData.set("walletPendingAction", pendingAction);
-  user.workflowData.delete("walletSecurityQuestion");
-
-  let prompt = "🔐 *Security Verification*\n\nTo access your wallet, please answer your security question:";
   try {
     const identity = await backendService.resolveCoreIdentity(user.phoneNumber, user.coreUserId ?? null);
     if (identity.uniqueId && !user.coreUserId) {
@@ -1725,20 +1725,33 @@ async function promptWalletSecurityVerification(user: UserDoc, pendingAction: st
         coreUserId: user.coreUserId,
       });
     }
-    if (identity.securityQuestion) {
-      user.workflowData.set("walletSecurityQuestion", identity.securityQuestion);
-      prompt += `\n\n*"${identity.securityQuestion}"*`;
+
+    // Single source of truth: use the dedicated endpoint for the security question
+    const question = await backendService.getSecurityQuestion(identity.identifier);
+
+    user.workflowState = WorkflowState.WALLET_VERIFY_SECURITY;
+    user.workflowData.set("walletPendingAction", pendingAction);
+    user.workflowData.delete("walletSecurityQuestion");
+    if (question) {
+      user.workflowData.set("walletSecurityQuestion", question);
+    }
+    await user.save();
+
+    let prompt = "🔐 *Security Verification*\n\nTo access your wallet, please answer your security question:";
+    if (question) {
+      prompt += `\n\n*"${question}"*`;
       prompt += "\n\nReply with *only your answer* (example: *Bullet*).";
     } else {
       prompt += "\n\n_(Enter only the security answer you set during registration)_";
     }
+    await sendTextMessage(user.phoneNumber, prompt);
   } catch (err) {
     logger.error("Error fetching security question for wallet prompt", { error: (err as Error).message });
-    prompt += "\n\n_(Enter only the security answer you set during registration)_";
+    await sendTextMessage(
+      user.phoneNumber,
+      "⚠️ We couldn't reach our servers right now. Please try again in a moment."
+    );
   }
-
-  await user.save();
-  await sendTextMessage(user.phoneNumber, prompt);
 }
 
 async function handleWalletManageAccountsMenu(user: UserDoc): Promise<void> {
@@ -2154,13 +2167,17 @@ async function finishRecipientStep(user: UserDoc): Promise<void> {
 
 async function askSecurity(user: UserDoc): Promise<void> {
   let prompt = "🔒 *Security Authorization*\n\nEnter your security answer to authorize this transfer:";
+  // Single source of truth: use the dedicated endpoint for the security question
+  const identifier = user.coreUserId ?? backendService.normalizePhone(user.phoneNumber);
   try {
-    const securityInfo = await backendService.checkUserExists(user.phoneNumber);
-    if (securityInfo?.securityQuestion) {
-      prompt += `\n\n*"${securityInfo.securityQuestion}"*`;
+    const question = await backendService.getSecurityQuestion(identifier);
+    if (question) {
+      prompt += `\n\n*"${question}"*`;
+      prompt += "\n\nReply with *only your answer*.";
     }
-  } catch {
-    /* ignore */
+  } catch (err) {
+    logger.warn("[askSecurity] Could not fetch security question from backend", { error: (err as Error).message });
+    // Fall through — the generic prompt is shown; the backend will validate the answer
   }
   await sendTextMessage(user.phoneNumber, prompt);
 }
