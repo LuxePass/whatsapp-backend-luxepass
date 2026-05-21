@@ -1729,21 +1729,22 @@ async function promptWalletSecurityVerification(user: UserDoc, pendingAction: st
     // Single source of truth: use the dedicated endpoint for the security question
     const question = await backendService.getSecurityQuestion(identity.identifier);
 
+    if (!question) {
+      await sendTextMessage(
+        user.phoneNumber,
+        "⚠️ Your wallet security question is currently unavailable. Please set or reset it from the main menu under *Wallet* → *Change Security Q*, then try again."
+      );
+      return;
+    }
+
     user.workflowState = WorkflowState.WALLET_VERIFY_SECURITY;
     user.workflowData.set("walletPendingAction", pendingAction);
-    user.workflowData.delete("walletSecurityQuestion");
-    if (question) {
-      user.workflowData.set("walletSecurityQuestion", question);
-    }
+    user.workflowData.set("walletSecurityQuestion", question);
     await user.save();
 
     let prompt = "🔐 *Security Verification*\n\nTo access your wallet, please answer your security question:";
-    if (question) {
-      prompt += `\n\n*"${question}"*`;
-      prompt += "\n\nReply with *only your answer* (example: *Bullet*).";
-    } else {
-      prompt += "\n\n_(Enter only the security answer you set during registration)_";
-    }
+    prompt += `\n\n*"${question}"*`;
+    prompt += "\n\nReply with *only your answer* (example: *Bullet*).";
     await sendTextMessage(user.phoneNumber, prompt);
   } catch (err) {
     logger.error("Error fetching security question for wallet prompt", { error: (err as Error).message });
@@ -2171,13 +2172,23 @@ async function askSecurity(user: UserDoc): Promise<void> {
   const identifier = user.coreUserId ?? backendService.normalizePhone(user.phoneNumber);
   try {
     const question = await backendService.getSecurityQuestion(identifier);
-    if (question) {
-      prompt += `\n\n*"${question}"*`;
-      prompt += "\n\nReply with *only your answer*.";
+    if (!question) {
+      await sendTextMessage(
+        user.phoneNumber,
+        "⚠️ Your security question is unavailable. Please set or reset it from the main menu under *Wallet* → *Change Security Q* before authorizing transfers."
+      );
+      return;
     }
+
+    prompt += `\n\n*"${question}"*`;
+    prompt += "\n\nReply with *only your answer*.";
   } catch (err) {
     logger.warn("[askSecurity] Could not fetch security question from backend", { error: (err as Error).message });
-    // Fall through — the generic prompt is shown; the backend will validate the answer
+    await sendTextMessage(
+      user.phoneNumber,
+      "⚠️ We couldn't reach our servers right now. Please try again in a moment."
+    );
+    return;
   }
   await sendTextMessage(user.phoneNumber, prompt);
 }
