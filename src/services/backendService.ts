@@ -151,12 +151,10 @@ export async function checkUserExists(phone) {
 		const payload = response.data.data ?? {};
 		const user = payload.user ?? null;
 		const uniqueId = payload.uniqueId ?? user?.uniqueId ?? null;
-		const securityQuestion = payload.securityQuestion ?? user?.securityQuestion ?? null;
 
 		return {
 			exists: Boolean(payload.exists ?? user),
 			uniqueId,
-			securityQuestion,
 			user,
 		};
 	} catch (err) {
@@ -183,7 +181,6 @@ export async function resolveCoreIdentity(phone, cachedUniqueId = null) {
 		exists: Boolean(lookup?.exists),
 		uniqueId,
 		identifier,
-		securityQuestion: lookup?.securityQuestion ?? null,
 	};
 }
 
