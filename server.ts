@@ -123,13 +123,15 @@ const startServer = async () => {
 				(process.env.RAILWAY_PUBLIC_DOMAIN
 					? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
 					: null) ||
-				process.env.RENDER_EXTERNAL_URL ||
-				`http://localhost:${PORT}`;
+				process.env.RENDER_EXTERNAL_URL;
+			if (!baseUrl) {
+				logger.warn("Server base URL is not configured; APP_URL, RAILWAY_PUBLIC_DOMAIN, or RENDER_EXTERNAL_URL must be set.");
+			}
 			logger.info(`🚀 WhatsApp Backend Server running on port ${PORT}`);
 			logger.info(`📝 Environment: ${config.server.nodeEnv}`);
-			logger.info(`🌐 Health check: ${baseUrl}/health`);
-			logger.info(`📨 Webhook endpoint: ${baseUrl}/webhook`);
-			logger.info(`💬 API base: ${baseUrl}/api`);
+			logger.info(`🌐 Health check: ${baseUrl ? `${baseUrl}/health` : "NOT CONFIGURED"}`);
+			logger.info(`📨 Webhook endpoint: ${baseUrl ? `${baseUrl}/webhook` : "NOT CONFIGURED"}`);
+			logger.info(`💬 API base: ${baseUrl ? `${baseUrl}/api` : "NOT CONFIGURED"}`);
 		},
     );
 	} catch (error) {

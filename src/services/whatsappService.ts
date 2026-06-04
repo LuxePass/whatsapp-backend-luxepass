@@ -245,10 +245,7 @@ function toAbsoluteMediaUrl(mediaUrl) {
 	if (!trimmed) return trimmed;
 	if (/^https?:\/\//i.test(trimmed)) return trimmed;
 	try {
-		const base =
-			process.env.MEDIA_BASE_URL ||
-			process.env.CORE_BACKEND_URL ||
-			"https://backend-luxepass.onrender.com/api/v1";
+		const base = process.env.MEDIA_BASE_URL ?? "";
 		const origin = new URL(base).origin;
 		if (trimmed.startsWith("//")) return "https:" + trimmed;
 		return trimmed.startsWith("/") ? origin + trimmed : origin + "/" + trimmed;

@@ -1750,7 +1750,7 @@ async function promptWalletSecurityVerification(user: UserDoc, pendingAction: st
     logger.error("Error fetching security question for wallet prompt", { error: (err as Error).message });
     await sendTextMessage(
       user.phoneNumber,
-      "⚠️ We couldn't reach our servers right now. Please try again in a moment."
+      "⚠️ Wallet services are currently unavailable. Please try again in a moment or type *Menu* to return."
     );
   }
 }
@@ -2186,7 +2186,7 @@ async function askSecurity(user: UserDoc): Promise<void> {
     logger.warn("[askSecurity] Could not fetch security question from backend", { error: (err as Error).message });
     await sendTextMessage(
       user.phoneNumber,
-      "⚠️ We couldn't reach our servers right now. Please try again in a moment."
+      "⚠️ Wallet services are currently unavailable. Please try again in a moment or type *Menu* to return."
     );
     return;
   }

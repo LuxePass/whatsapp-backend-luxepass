@@ -3,8 +3,10 @@ import logger from "../config/logger.ts";
 
 // ─── HTTP Client ───────────────────────────────────────────────────────────────
 
-const CORE_BACKEND_URL =
-	process.env.CORE_BACKEND_URL || "https://backend-luxepass-sruf.onrender.com/api/v1";
+const CORE_BACKEND_URL = process.env.CORE_BACKEND_URL || "";
+if (!CORE_BACKEND_URL) {
+	logger.error("[backendService] CORE_BACKEND_URL is not configured; backendService requests will fail.");
+}
 
 // Derive the internal base URL from the public one (/api/v1 → /api/v1/internal)
 const CORE_INTERNAL_URL = CORE_BACKEND_URL.replace(/\/api\/v1\/?$/, "/api/v1/internal");
@@ -31,9 +33,9 @@ const internalClient = axios.create({
 
 // Inject internal secret on every request (read at request time, not at import time)
 internalClient.interceptors.request.use((config) => {
-	const secret = process.env.CORE_BACKEND_INTERNAL_SECRET ?? "";
+	const secret = process.env.CORE_BACKEND_INTERNAL_SECRET || process.env.WHATSAPP_BACKEND_SECRET || "";
 	if (!secret) {
-		logger.warn("[backendService] CORE_BACKEND_INTERNAL_SECRET not set — internal requests will fail auth");
+		logger.warn("[backendService] CORE_BACKEND_INTERNAL_SECRET or WHATSAPP_BACKEND_SECRET not set — internal requests will fail auth");
 	}
 	config.headers["x-whatsapp-backend-secret"] = secret;
 	return config;
@@ -492,12 +494,25 @@ export async function getWallet(
  * @returns {Promise<string | null>} The security question text, or null if not set
  */
 export async function getSecurityQuestion(identifier: string): Promise<string | null> {
-	const response = await withRetry(
-		() => apiClient.get("/auth/security-question", { params: { userIdentifier: identifier } }),
-		{ retries: 2, label: "getSecurityQuestion" },
-	);
-	const data = response.data?.data ?? {};
-	return data.question ?? null;
+	try {
+		const response = await withRetry(
+			() => apiClient.get("/auth/security-question", { params: { userIdentifier: identifier } }),
+			{ retries: 2, label: "getSecurityQuestion" },
+		);
+		const data = response.data?.data ?? {};
+		return data.question ?? null;
+	} catch (err) {
+		if (err.response?.status === 404) {
+			// Missing security question is not a server failure.
+			return null;
+		}
+		logger.error("[backendService] getSecurityQuestion failed", {
+			identifier,
+			status: err.response?.status,
+			message: err.message,
+		});
+		throw err;
+	}
 }
 
 /**
