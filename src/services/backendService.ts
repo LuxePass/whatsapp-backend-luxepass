@@ -163,24 +163,23 @@ export async function checkUserExists(phone) {
 	const normalizedPhone = normalizePhone(phone);
 	try {
 		const response = await withRetry(
-			() => apiClient.get(`/users/exists?phone=${normalizedPhone}`),
-			{ label: "checkUserExists" },
+			() => internalClient.post('/users/exists', { phone: normalizedPhone }),
+			{ label: 'checkUserExists' },
 		);
 		if (!response.data.success) return null;
 
 		const payload = response.data.data ?? {};
-		const user = payload.user ?? null;
-		const uniqueId = payload.uniqueId ?? user?.uniqueId ?? null;
+		const uniqueId = payload.uniqueId ?? null;
 
 		return {
-			exists: Boolean(payload.exists ?? user),
+			exists: Boolean(payload.exists),
 			uniqueId,
-			user,
+			user: payload.user ?? null,
 		};
 	} catch (err) {
 		if (err.response?.status === 404) return null;
 
-		logger.error("[backendService] checkUserExists failed", {
+		logger.error('[backendService] checkUserExists failed', {
 			phone: normalizedPhone,
 			status: err.response?.status,
 			message: err.message,
@@ -483,7 +482,7 @@ export async function getWallet(
 	try {
 		const response = await withRetry(
 			() =>
-				internalClient.get(`/wallet/${encodeURIComponent(identifier)}`, {
+				apiClient.get(`/wallet/internal/${encodeURIComponent(identifier)}`, {
 					headers,
 				}),
 			{ label: `getWallet(${identifier})` },
