@@ -8,8 +8,16 @@ if (!CORE_BACKEND_URL) {
 	logger.error("[backendService] CORE_BACKEND_URL is not configured; backendService requests will fail.");
 }
 
-// Derive the internal base URL from the public one (/api/v1 → /api/v1/internal)
-const CORE_INTERNAL_URL = CORE_BACKEND_URL.replace(/\/api\/v1\/?$/, "/api/v1/internal");
+// Derive the internal base URL from the public one (/api/v1 → /api/v1/internal).
+// If CORE_BACKEND_URL already includes /api/v1, replace it; otherwise append the internal suffix.
+let CORE_INTERNAL_URL = "";
+if (CORE_BACKEND_URL) {
+	if (/\/api\/v1\/?$/.test(CORE_BACKEND_URL)) {
+		CORE_INTERNAL_URL = CORE_BACKEND_URL.replace(/\/api\/v1\/?$/, "/api/v1/internal");
+	} else {
+		CORE_INTERNAL_URL = CORE_BACKEND_URL.replace(/\/$/, "") + "/api/v1/internal";
+	}
+}
 
 /**
  * Axios instance with a 15-second request timeout.
@@ -532,6 +540,7 @@ export async function setSecurityQuestion(data) {
 		logger.error("[backendService] setSecurityQuestion failed", {
 			userIdentifier: data.userIdentifier,
 			status: err.response?.status,
+			response: err.response?.data,
 			message: err.message,
 		});
 		return false;

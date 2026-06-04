@@ -39,9 +39,17 @@ export const config = {
 
 // Validate required environment variables
 const requiredVars = [
+	"NODE_ENV",
+	"PORT",
+	"DATABASE_URL",
 	"META_TOKEN",
 	"META_PHONE_NUMBER_ID",
+	"META_APP_ID",
+	"META_APP_SECRET",
 	"WEBHOOK_VERIFY_TOKEN",
+	"CORE_BACKEND_URL",
+	"CORE_BACKEND_INTERNAL_SECRET",
+	"WHATSAPP_BACKEND_SECRET",
 ];
 
 const missingVars = requiredVars.filter((varName) => !process.env[varName]);
