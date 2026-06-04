@@ -29,6 +29,16 @@ const apiClient = axios.create({
 	headers: { "Content-Type": "application/json" },
 });
 
+// Inject internal secret on every request to apiClient (read at request time, not at import time)
+// This allows WhatsApp backend to call internal endpoints like /auth/security-question
+apiClient.interceptors.request.use((config) => {
+	const secret = process.env.CORE_BACKEND_INTERNAL_SECRET || process.env.WHATSAPP_BACKEND_SECRET || "";
+	if (secret) {
+		config.headers["x-whatsapp-backend-secret"] = secret;
+	}
+	return config;
+});
+
 /**
  * Dedicated client for internal-only endpoints (/api/v1/internal/...).
  * Secret is injected via request interceptor so it's always fresh.
@@ -532,16 +542,26 @@ export async function getSecurityQuestion(identifier: string): Promise<string | 
 export async function setSecurityQuestion(data) {
 	try {
 		const response = await withRetry(
-			() => internalClient.post("/auth/security-question", data),
+			() => apiClient.post("/auth/security-question", data),
 			{ retries: 2, label: "setSecurityQuestion" },
 		);
+		logger.info("[backendService] setSecurityQuestion succeeded", {
+			userIdentifier: data.userIdentifier,
+			success: response.data.success,
+		});
 		return Boolean(response.data.success);
 	} catch (err) {
 		logger.error("[backendService] setSecurityQuestion failed", {
 			userIdentifier: data.userIdentifier,
 			status: err.response?.status,
+			statusText: err.response?.statusText,
 			response: err.response?.data,
 			message: err.message,
+			config: {
+				url: err.config?.url,
+				method: err.config?.method,
+				baseURL: err.config?.baseURL,
+			},
 		});
 		return false;
 	}
