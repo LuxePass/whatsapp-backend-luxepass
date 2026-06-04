@@ -473,7 +473,6 @@ export async function getWallet(
 	token = null,
 ) {
 	const headers: Record<string, string> = {
-		"x-whatsapp-backend-secret": process.env.CORE_BACKEND_INTERNAL_SECRET ?? "",
 		"X-Unique-Id": identifier,
 	};
 	if (token) {
@@ -484,7 +483,7 @@ export async function getWallet(
 	try {
 		const response = await withRetry(
 			() =>
-				apiClient.get(`/wallet/internal/${encodeURIComponent(identifier)}`, {
+				internalClient.get(`/wallet/${encodeURIComponent(identifier)}`, {
 					headers,
 				}),
 			{ label: `getWallet(${identifier})` },
