@@ -2186,11 +2186,7 @@ async function askSecurity(user: UserDoc): Promise<void> {
     logger.warn("[askSecurity] Could not fetch security question from backend", { error: (err as Error).message });
     await sendTextMessage(
       user.phoneNumber,
-<<<<<<< HEAD
       "⚠️ Wallet services are currently unavailable. Please try again in a moment or type *Menu* to return."
-=======
-      "⚠️ We couldn't reach our servers right now. Please try again in a moment."
->>>>>>> 3a99c493080f8463a1906909204596dd55ffecad
     );
     return;
   }
