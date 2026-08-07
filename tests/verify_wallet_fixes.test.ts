@@ -116,5 +116,21 @@ describe("Wallet Fixes Verification", () => {
 			expect.stringContaining("Incorrect security answer"),
 		);
 	});
+
+	test("should show service unavailable when backend verification fails", async () => {
+		mockUser.workflowState = "WALLET_VERIFY_SECURITY";
+		mockUser.workflowData.set("walletPendingAction", "wallet_balance");
+
+		mockVerifySecurityAnswer.mockResolvedValue({ token: null, httpStatus: 500 });
+
+		await handleWalletFlow(mockUser, "any_answer");
+
+		expect(mockVerifySecurityAnswer).toHaveBeenCalledWith("core-123", "any_answer");
+		expect(mockResolveWallet).not.toHaveBeenCalled();
+		expect(mockSendTextMessage).toHaveBeenCalledWith(
+			"1234567890",
+			expect.stringContaining("temporarily unavailable"),
+		);
+	});
 });
 

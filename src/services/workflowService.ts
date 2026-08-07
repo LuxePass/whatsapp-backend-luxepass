@@ -1461,14 +1461,23 @@ export async function handleWalletFlow(user: UserDoc, message: string): Promise<
         let errMsg: string;
         if (httpStatus === 404) {
           errMsg =
-            "❌ We couldn't find a security question for your account.\n\n" +
+            "We couldn't find a security question for your account.\n\n" +
             "Please go to *Wallet → Change Security Q* to set one, then try again.";
         } else if (httpStatus === 400) {
           errMsg =
-            "⛔ Too many incorrect attempts.\n\n" +
+            "Too many incorrect attempts.\n\n" +
             "For your security, wallet access is temporarily locked. Please wait 15 minutes and try again.";
+        } else if (httpStatus === 401) {
+          errMsg =
+            "Incorrect security answer. Please try again or type *Menu* to go back.\n\n" +
+            "💡 *Forgot your answer?* From the main menu, go to *Wallet* → *Change Security Q* to set a new one — no old answer needed.";
+        } else if (httpStatus >= 500) {
+          errMsg =
+            "Our wallet service is temporarily unavailable. Please try again in a few moments or type *Menu* to return.\n\n" +
+            "If the issue persists, contact support for assistance.";
         } else {
-          errMsg = "❌ Incorrect security answer. Please try again or type *Menu* to go back.\n\n💡 *Forgot your answer?* From the main menu, go to *Wallet* → *Change Security Q* to set a new one — no old answer needed.";
+          errMsg =
+            "There was an issue verifying your request. Please try again in a few moments or type *Menu* to go back.";
         }
         await sendTextMessage(phoneNumber, errMsg);
         return;
