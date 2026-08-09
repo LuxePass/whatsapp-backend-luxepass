@@ -499,6 +499,49 @@ export async function getWallet(
 }
 
 /**
+ * Fetches (and provisions, on demand) the active deposit virtual account for a user.
+ * Uses the internal secret + security verification token — no user JWT needed.
+ *
+ * The core backend NEVER returns an empty account for an existing user: if no active
+ * virtual account is persisted, one is synchronously provisioned and returned. Failures
+ * surface as descriptive errors instead of a dead-end "being prepared" message.
+ *
+ * @param {string}      identifier - coreUserId or phone
+ * @param {string|null} token      - Security verification token from verifySecurityAnswer
+ * @returns {Promise<Object|null>} { walletId, userId, bankName, accountName, accountNumber, setupStatus }
+ */
+export async function getOrProvisionDepositAccount(
+	identifier,
+	token,
+) {
+	const headers: Record<string, string> = {
+		"X-Unique-Id": identifier,
+	};
+	if (token) {
+		headers["X-Security-Verification-Token"] = token;
+		headers["X-Verification-Token"] = token;
+	}
+
+	try {
+		const response = await withRetry(
+			() =>
+				apiClient.get(`/wallet/deposit-account/${encodeURIComponent(identifier)}`, {
+					headers,
+				}),
+			{ retries: 2, label: `getOrProvisionDepositAccount(${identifier})` },
+		);
+		return response.data.success ? response.data.data : null;
+	} catch (err) {
+		logger.error("[backendService] getOrProvisionDepositAccount failed", {
+			identifier,
+			status: err.response?.status,
+			message: err.response?.data?.error?.message ?? err.message,
+		});
+		return null;
+	}
+}
+
+/**
  * Fetches the security question for a user via the dedicated endpoint.
  * This is the single source of truth for security question data.
  *
@@ -510,6 +553,7 @@ export async function getWallet(
  * @returns {Promise<string | null>} The security question text, or null if not set
  */
 export async function getSecurityQuestion(identifier: string): Promise<string | null> {
+
 	try {
 		const response = await withRetry(
 			() => apiClient.get("/auth/security-question", { params: { userIdentifier: identifier } }),
@@ -909,4 +953,3 @@ export default {
 	createMessage,
 	getConversationMessages,
 };
-
